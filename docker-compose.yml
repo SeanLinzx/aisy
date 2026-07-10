@@ -1,0 +1,68 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-camp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_camp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ai-camp-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ai_camp
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      COOKIE_NAME: ai_camp_token
+      UPLOAD_DIR: /app/uploads
+      PUBLIC_UPLOAD_BASE: http://localhost:3001/uploads
+      WEB_ORIGIN: http://localhost:3000
+      DEFAULT_AI_PROVIDER: ${DEFAULT_AI_PROVIDER:-volcengine-ark}
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      ARK_IMAGES_PATH: ${ARK_IMAGES_PATH:-/images/generations}
+      ARK_TEXT_MODEL: ${ARK_TEXT_MODEL:-}
+      ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-doubao-seedream-3-0-t2i-250415}
+      ARK_VIDEO_MODEL: ${ARK_VIDEO_MODEL:-doubao-seedance-2-0-260128}
+      ARK_MULTIMODAL_MODEL: ${ARK_MULTIMODAL_MODEL:-doubao-seed-2-0-pro-260215}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./apps/api/uploads:/app/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: ai-camp-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE: http://localhost:3001/api
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

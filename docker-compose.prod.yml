@@ -1,0 +1,80 @@
+# Production overlay — 备案期间用 IP 访问：http://122.51.185.212/aisy
+# 域名恢复后改回 WEB_ORIGIN / PUBLIC_UPLOAD_BASE 并启用 deploy/nginx-camp-ssl.conf
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ai-camp-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      # SQLite 放在挂载卷 ./data/db，容器重建/升级不再丢数据
+      DATABASE_URL: file:/app/db/prod.db
+      JWT_SECRET: ${JWT_SECRET:-ai_camp_prod_jwt_secret_change_me}
+      COOKIE_NAME: ai_camp_token
+      UPLOAD_DIR: /app/uploads
+      PUBLIC_UPLOAD_BASE: http://122.51.185.212/aisy/uploads
+      WEB_ORIGIN: http://122.51.185.212
+      WEB_BASE_PATH: /aisy
+      DEFAULT_AI_PROVIDER: ${DEFAULT_AI_PROVIDER:-volcengine-ark}
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      ARK_BASE_URL: ${ARK_BASE_URL:-https://ark.cn-beijing.volces.com/api/v3}
+      ARK_IMAGES_PATH: ${ARK_IMAGES_PATH:-/images/generations}
+      ARK_TEXT_MODEL: ${ARK_TEXT_MODEL:-}
+      ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-doubao-seedream-5-0-260128}
+      ARK_VIDEO_MODEL: ${ARK_VIDEO_MODEL:-doubao-seedance-2-0-260128}
+      ARK_MULTIMODAL_MODEL: ${ARK_MULTIMODAL_MODEL:-doubao-seed-2-0-pro-260215}
+    ports:
+      - "127.0.0.1:3014:3001"
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./data/db:/app/db
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_PATH: /aisy
+        NEXT_PUBLIC_API_BASE: /aisy/api
+        API_ORIGIN: http://api:3001
+    container_name: ai-camp-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_BASE_PATH: /aisy
+      NEXT_PUBLIC_API_BASE: /aisy/api
+      NEXT_PUBLIC_SITE_NOTICE: 域名备案审核中，请使用 IP 地址访问：http://122.51.185.212/aisy
+      API_ORIGIN: http://api:3001
+    ports:
+      - "127.0.0.1:3013:3000"
+
+  # 平板触控专版：/aisy_pad
+  web-pad:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_BASE_PATH: /aisy_pad
+        NEXT_PUBLIC_API_BASE: /aisy_pad/api
+        NEXT_PUBLIC_PAD_MODE: "1"
+        API_ORIGIN: http://api:3001
+    container_name: ai-camp-web-pad
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_BASE_PATH: /aisy_pad
+      NEXT_PUBLIC_API_BASE: /aisy_pad/api
+      NEXT_PUBLIC_PAD_MODE: "1"
+      NEXT_PUBLIC_SITE_NOTICE: 平板课堂专版 · 触控优化界面
+      API_ORIGIN: http://api:3001
+    ports:
+      - "127.0.0.1:3015:3000"

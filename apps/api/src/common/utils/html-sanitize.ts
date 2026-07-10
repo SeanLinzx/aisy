@@ -1,0 +1,142 @@
+import sanitizeHtml from 'sanitize-html';
+
+/**
+ * Sanitize HTML coming from the AI or from the user. We purposely keep this permissive enough
+ * to allow common design tricks (animations via inline styles, flex layouts, etc.) while
+ * stripping script, iframe and event handlers. The preview is also rendered inside a
+ * sandboxed iframe, so this is a second line of defense rather than the only one.
+ */
+export function sanitizeGeneratedHtml(html: string): string {
+  return sanitizeHtml(html, {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+      'img',
+      'video',
+      'source',
+      'audio',
+      'style',
+      'header',
+      'footer',
+      'section',
+      'article',
+      'nav',
+      'main',
+      'aside',
+      'figure',
+      'figcaption',
+      'svg',
+      'path',
+      'circle',
+      'rect',
+      'g',
+      'line',
+      'polyline',
+      'polygon',
+      // 互动小游戏/小应用常用的表单与控件标签，之前遗漏导致按钮、输入框在发布页被整段剥除
+      'button',
+      'input',
+      'select',
+      'option',
+      'optgroup',
+      'textarea',
+      'label',
+      'form',
+      'canvas',
+      'output',
+      'progress',
+      'meter',
+      'summary',
+      'details',
+      'template',
+    ]),
+    allowedAttributes: {
+      '*': ['class', 'id', 'style', 'data-*', 'role', 'aria-*', 'tabindex'],
+      a: ['href', 'name', 'target', 'rel'],
+      img: ['src', 'alt', 'width', 'height', 'loading'],
+      video: ['src', 'controls', 'poster', 'width', 'height', 'autoplay', 'loop', 'muted', 'playsinline'],
+      source: ['src', 'type'],
+      audio: ['src', 'controls'],
+      svg: ['viewBox', 'xmlns', 'fill', 'stroke', 'width', 'height'],
+      path: ['d', 'fill', 'stroke', 'stroke-width'],
+      circle: ['cx', 'cy', 'r', 'fill', 'stroke'],
+      rect: ['x', 'y', 'width', 'height', 'fill', 'stroke', 'rx', 'ry'],
+      line: ['x1', 'y1', 'x2', 'y2', 'stroke'],
+      polyline: ['points', 'fill', 'stroke'],
+      polygon: ['points', 'fill', 'stroke'],
+      g: ['fill', 'stroke', 'transform'],
+      button: ['type', 'name', 'value', 'disabled'],
+      input: [
+        'type',
+        'name',
+        'value',
+        'placeholder',
+        'checked',
+        'disabled',
+        'readonly',
+        'min',
+        'max',
+        'step',
+        'maxlength',
+        'minlength',
+        'required',
+        'autocomplete',
+        'list',
+        'pattern',
+      ],
+      select: ['name', 'disabled', 'multiple', 'required'],
+      option: ['value', 'selected', 'disabled'],
+      optgroup: ['label', 'disabled'],
+      textarea: ['name', 'placeholder', 'rows', 'cols', 'disabled', 'readonly', 'maxlength', 'required'],
+      label: ['for'],
+      form: ['name'],
+      canvas: ['width', 'height'],
+      progress: ['value', 'max'],
+      meter: ['value', 'min', 'max', 'low', 'high', 'optimum'],
+    },
+    allowedSchemes: ['http', 'https', 'data', 'blob'],
+    allowedSchemesByTag: { img: ['http', 'https', 'data', 'blob'] },
+    allowVulnerableTags: false,
+    allowedStyles: {
+      '*': {
+        color: [/.*/],
+        'background-color': [/.*/],
+        background: [/.*/],
+        'font-size': [/.*/],
+        'font-family': [/.*/],
+        'font-weight': [/.*/],
+        'text-align': [/.*/],
+        padding: [/.*/],
+        margin: [/.*/],
+        border: [/.*/],
+        'border-radius': [/.*/],
+        display: [/.*/],
+        width: [/.*/],
+        height: [/.*/],
+        'max-width': [/.*/],
+        'max-height': [/.*/],
+        'min-width': [/.*/],
+        'min-height': [/.*/],
+        'flex-direction': [/.*/],
+        'justify-content': [/.*/],
+        'align-items': [/.*/],
+        gap: [/.*/],
+        position: [/.*/],
+        top: [/.*/],
+        left: [/.*/],
+        right: [/.*/],
+        bottom: [/.*/],
+        transform: [/.*/],
+        transition: [/.*/],
+        animation: [/.*/],
+      },
+    },
+  });
+}
+
+export function containsSensitive(input: string, words: string[]): string | null {
+  const lowered = input.toLowerCase();
+  for (const w of words) {
+    if (!w) continue;
+    if (lowered.includes(w.toLowerCase())) return w;
+  }
+  return null;
+}

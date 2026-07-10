@@ -1,0 +1,312 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { api } from '@/lib/api';
+import { resolveUploadPath } from '@/lib/upload-url';
+import { AiWarning } from '@/components/ai-warning';
+import { AiProgress } from '@/components/course/ai-progress';
+import { useReportGameProgress } from '@/hooks/use-report-game-progress';
+import {
+  STORY_FILL_STORAGE_KEY,
+  buildPictureBookPrompt,
+  sceneToImageCaption,
+  type PictureBookStyle,
+  type StorySceneForm,
+} from '@/lib/story-course';
+
+interface BookScene {
+  id: string;
+  caption: string;
+  imageUrl?: string;
+  status: 'idle' | 'generating' | 'done' | 'failed';
+  error?: string;
+}
+
+function defaultStyle(): PictureBookStyle {
+  return {
+    artStyle: '温暖柔和的水彩儿童绘本',
+    character: '穿红色连帽衫的小女孩，黑色短发，大眼睛',
+    background: '童话世界，色彩明亮，线条简洁',
+  };
+}
+
+export function PictureBookGame() {
+  const report = useReportGameProgress('picture-book');
+  const [title, setTitle] = useState('我的 AI 绘本');
+  const [style, setStyle] = useState<PictureBookStyle>(defaultStyle());
+  const [scenes, setScenes] = useState<BookScene[]>([
+    { id: 'p1', caption: '', status: 'idle' },
+    { id: 'p2', caption: '', status: 'idle' },
+    { id: 'p3', caption: '', status: 'idle' },
+  ]);
+  const [busy, setBusy] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [hasImported, setHasImported] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORY_FILL_STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as {
+        title?: string;
+        scenes?: StorySceneForm[];
+        story?: string;
+      };
+      if (data.title) setTitle(`${data.title} · 绘本`);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function importFromStoryFill() {
+    try {
+      const raw = localStorage.getItem(STORY_FILL_STORAGE_KEY);
+      if (!raw) {
+        setError('还没有编好的故事，请先完成「填空编故事」游戏。');
+        return;
+      }
+      const data = JSON.parse(raw) as { title?: string; scenes?: StorySceneForm[] };
+      if (!data.scenes?.length) {
+        setError('上一局故事没有场景信息，请手动填写每页画面。');
+        return;
+      }
+      setScenes(
+        data.scenes.map((s, i) => ({
+          id: `p${i + 1}`,
+          caption: sceneToImageCaption(s),
+          status: 'idle' as const,
+        })),
+      );
+      if (data.title) setTitle(`${data.title} · 绘本`);
+      setHasImported(true);
+      setError(null);
+    } catch {
+      setError('读取故事失败，请手动填写场景。');
+    }
+  }
+
+  function updateCaption(id: string, caption: string) {
+    setScenes((prev) => prev.map((s) => (s.id === id ? { ...s, caption } : s)));
+  }
+
+  function addScene() {
+    setScenes((prev) => [...prev, { id: `p${Date.now()}`, caption: '', status: 'idle' }]);
+  }
+
+  async function generateOne(sceneId: string, refUrl?: string) {
+    const scene = scenes.find((s) => s.id === sceneId);
+    if (!scene?.caption.trim()) {
+      setError('请先填写这一页的画面描述。');
+      return;
+    }
+    const idx = scenes.findIndex((s) => s.id === sceneId);
+    setGeneratingId(sceneId);
+    setError(null);
+    setScenes((prev) =>
+      prev.map((s) => (s.id === sceneId ? { ...s, status: 'generating', error: undefined } : s)),
+    );
+    void report({ status: 'generating', prompt: scene.caption, summary: `正在画第 ${idx + 1} 页` });
+
+    try {
+      const prompt = buildPictureBookPrompt(style, scene.caption.trim(), idx, scenes.length);
+      const refs = refUrl ? [{ type: 'image', url: refUrl }] : undefined;
+      const r = await api.post('/ai-generate/image', {
+        prompt,
+        saveAsAsset: true,
+        title: `${title}·第${idx + 1}页`,
+        references: refs,
+        options: { size: '1K', n: 1 },
+      });
+      const url = r.data.imageUrls?.[0];
+      if (!url) throw new Error('没有拿到图片');
+
+      setScenes((prev) => {
+        const next = prev.map((s) =>
+          s.id === sceneId ? { ...s, imageUrl: url, status: 'done' as const } : s,
+        );
+        const done = next.filter((s) => s.status === 'done').length;
+        void report({
+          status: done === next.length ? 'done' : 'generating',
+          prompt: scene.caption,
+          imageUrls: next.filter((s) => s.imageUrl).map((s) => s.imageUrl!),
+          thumbnailUrl: url,
+          summary: `已完成 ${done}/${next.length} 页绘本`,
+          items: next.map((s, i) => ({
+            url: s.imageUrl,
+            label: `第 ${i + 1} 页`,
+            prompt: s.caption,
+            status: s.status,
+          })),
+        });
+        return next;
+      });
+      return url;
+    } catch (e: any) {
+      const msg = e?.message || '生成失败';
+      setScenes((prev) =>
+        prev.map((s) => (s.id === sceneId ? { ...s, status: 'failed', error: msg } : s)),
+      );
+      void report({ status: 'failed', error: msg });
+      setError(msg);
+      return undefined;
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  async function generateAll() {
+    if (scenes.some((s) => !s.caption.trim())) {
+      setError('请为每一页填写画面描述后再生成。');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    void report({ status: 'generating', summary: '开始生成绘本…' });
+
+    let refUrl: string | undefined;
+    for (const scene of scenes) {
+      const url = await generateOne(scene.id, refUrl);
+      if (url) refUrl = url;
+      else break;
+    }
+    setBusy(false);
+  }
+
+  const doneCount = scenes.filter((s) => s.status === 'done').length;
+
+  return (
+    <div className="space-y-5">
+      <div className="kid-card-yellow">
+        <p className="text-sm font-semibold text-ink-soft leading-relaxed">
+          📚 为故事的每一页写好画面，AI 会按<strong>统一画风、人物和背景</strong>生成绘本插图。从第二页起会参考第一页，保持角色一致。
+        </p>
+      </div>
+
+      <div className="kid-card space-y-3">
+        <div className="flex flex-wrap gap-2 items-center justify-between">
+          <label className="text-sm font-bold">绘本标题</label>
+          <button type="button" onClick={importFromStoryFill} className="kid-button-sm bg-violet-50 border-violet-200 text-violet-700 text-xs">
+            📥 导入「填空编故事」的场景
+          </button>
+        </div>
+        <input className="kid-input" value={title} onChange={(e) => setTitle(e.target.value)} />
+        {hasImported && <p className="text-xs text-emerald-700 font-bold">✅ 已从上一关导入场景描述</p>}
+      </div>
+
+      <div className="kid-card-purple space-y-3">
+        <div className="text-sm font-bold">🎨 全书统一风格（每页保持一致）</div>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs font-bold text-ink-soft">画风</label>
+            <input
+              className="kid-input mt-1 text-sm"
+              value={style.artStyle}
+              onChange={(e) => setStyle((s) => ({ ...s, artStyle: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-ink-soft">主角外貌</label>
+            <input
+              className="kid-input mt-1 text-sm"
+              value={style.character}
+              onChange={(e) => setStyle((s) => ({ ...s, character: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-bold text-ink-soft">背景风格</label>
+            <input
+              className="kid-input mt-1 text-sm"
+              value={style.background}
+              onChange={(e) => setStyle((s) => ({ ...s, background: e.target.value }))}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        {scenes.map((scene, i) => (
+          <div key={scene.id} className="kid-card space-y-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-extrabold">📄 第 {i + 1} 页</span>
+              <button
+                type="button"
+                disabled={!!generatingId || busy}
+                onClick={() => void generateOne(scene.id, scenes[0]?.imageUrl)}
+                className="kid-button-sm bg-white border-2 border-orange-200 text-xs"
+              >
+                {generatingId === scene.id ? '生成中…' : '只生成本页'}
+              </button>
+            </div>
+            <textarea
+              className="kid-textarea !min-h-[72px] text-sm"
+              value={scene.caption}
+              onChange={(e) => updateCaption(scene.id, e.target.value)}
+              placeholder="这一页画面里发生了什么？例如：小女孩在森林入口发现一张会发光的地图"
+            />
+            {scene.status === 'generating' && (
+              <div className="aspect-[4/3] rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-sm font-bold text-amber-700 animate-pulse">
+                AI 正在画这一页…
+              </div>
+            )}
+            {scene.imageUrl && scene.status === 'done' && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={resolveUploadPath(scene.imageUrl)}
+                alt={`第 ${i + 1} 页`}
+                className="w-full rounded-2xl border-2 border-orange-100"
+              />
+            )}
+            {scene.status === 'failed' && (
+              <p className="text-xs text-rose-600">{scene.error || '生成失败'}</p>
+            )}
+            {scene.caption && scene.status === 'idle' && (
+              <p className="text-xs text-ink-soft italic border-l-2 border-violet-200 pl-2">{scene.caption}</p>
+            )}
+          </div>
+        ))}
+        <button type="button" onClick={addScene} className="kid-button-ghost text-sm">
+          ➕ 再加一页
+        </button>
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <button onClick={() => void generateAll()} disabled={busy || !!generatingId} className="kid-button-primary">
+          {busy ? `逐页生成中 (${doneCount}/${scenes.length})…` : '📚 一键生成整本绘本'}
+        </button>
+        <Link href="/student/course/g/story-fill" className="kid-button-ghost text-sm">
+          ← 回去编故事
+        </Link>
+      </div>
+
+      {(busy || generatingId) && (
+        <AiProgress label="AI 正在按统一画风绘制绘本…" />
+      )}
+      {error && (
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+      )}
+
+      {doneCount > 0 && (
+        <div className="kid-card-mint">
+          <h3 className="font-extrabold mb-2">📖 绘本预览（{doneCount}/{scenes.length} 页）</h3>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {scenes
+              .filter((s) => s.imageUrl)
+              .map((s, i) => (
+                <div key={s.id} className="space-y-2">
+                  <div className="text-xs font-bold text-ink-soft">第 {i + 1} 页</div>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={resolveUploadPath(s.imageUrl!)} alt="" className="w-full rounded-xl border border-orange-100" />
+                  <p className="text-xs text-ink-soft line-clamp-3">{s.caption}</p>
+                </div>
+              ))}
+          </div>
+          <div className="mt-4">
+            <AiWarning />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

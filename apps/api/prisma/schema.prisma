@@ -1,0 +1,554 @@
+// Prisma schema for the AI Camp platform.
+//
+// This version is wired for **SQLite** — zero install, a single file under
+// `apps/api/prisma/dev.db` holds everything. Postgres is still a supported
+// target: change the `provider` below to `postgresql` and the application
+// will keep working because we never rely on PG-specific features.
+//
+// Two concessions for the SQLite connector (Prisma 5.x):
+//   1. `Json` is represented as `String` fields (stringified JSON). The helper
+//      `json.ts` util transparently parses/serializes at the edges.
+//   2. Native `enum` types are represented as `String` with a TS union in
+//      `common/enums.ts`. All services accept the same string values.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Core user model ----------
+
+model User {
+  id           String      @id @default(cuid())
+  username     String      @unique
+  passwordHash String
+  // One of: student | parent | teacher | admin
+  role         String
+  displayName  String
+  avatarUrl    String?
+  email        String?
+  phone        String?
+  // One of: active | disabled
+  status       String      @default("active")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  deletedAt    DateTime?
+
+  studentProfile        StudentProfile?
+  createdUsers          User[]                 @relation("UserCreatedBy")
+  createdBy             User?                  @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdById           String?
+
+  classMemberships      ClassMember[]
+  groupMemberships      GroupMember[]
+  ownedClasses          Class[]                @relation("ClassOwner")
+  ownedTasks            Task[]                 @relation("TaskOwner")
+  submissions           TaskSubmission[]
+  assets                Asset[]
+  webProjects           WebProject[]
+  homepage              StudentHomepage?
+  aiJobs                AiGenerationJob[]
+  reviewsMade           ReviewRecord[]         @relation("ReviewReviewer")
+  quotaAccount          QuotaAccount?
+  quotaTxns             QuotaTransaction[]     @relation("QuotaUser")
+  quotaGrantedTxns      QuotaTransaction[]     @relation("QuotaOperator")
+  auditLogs             AuditLog[]
+
+  parentOf              ParentStudentRelation[] @relation("ParentRelation")
+  studentOf             ParentStudentRelation[] @relation("StudentRelation")
+  growthRecords         GrowthRecord[]
+
+  parentConversations   Conversation[]         @relation("ConvParent")
+  teacherConversations  Conversation[]         @relation("ConvTeacher")
+  sentMessages          Message[]              @relation("MsgSender")
+
+  @@index([role])
+  @@index([status])
+}
+
+model StudentProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nickname  String?
+  bio       String?
+  grade     String?
+  // JSON array string e.g. "[\"reading\",\"painting\"]"
+  interests String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ParentStudentRelation {
+  id         String   @id @default(cuid())
+  parentId   String
+  studentId  String
+  relation   String?  @default("parent")
+  parent     User     @relation("ParentRelation", fields: [parentId], references: [id], onDelete: Cascade)
+  student    User     @relation("StudentRelation", fields: [studentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([parentId, studentId])
+  @@index([studentId])
+}
+
+// ---------- Class & group ----------
+
+model Class {
+  id          String        @id @default(cuid())
+  name        String
+  code        String        @unique
+  description String?
+  ownerId     String
+  owner       User          @relation("ClassOwner", fields: [ownerId], references: [id])
+  members     ClassMember[]
+  groups      Group[]
+  tasks       Task[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+}
+
+model ClassMember {
+  id       String   @id @default(cuid())
+  classId  String
+  userId   String
+  role     String
+  class    Class    @relation(fields: [classId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@unique([classId, userId])
+}
+
+model Group {
+  id          String        @id @default(cuid())
+  classId     String
+  name        String
+  description String?
+  points      Int           @default(0)
+  class       Class         @relation(fields: [classId], references: [id], onDelete: Cascade)
+  members     GroupMember[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model GroupMember {
+  id       String   @id @default(cuid())
+  groupId  String
+  userId   String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId])
+}
+
+// ---------- Tasks & submissions ----------
+
+model Task {
+  id          String           @id @default(cuid())
+  title       String
+  description String?
+  // One of AssetType: text|image|video|audio|poster|ppt|web|code|mixed
+  type        String           @default("mixed")
+  // One of TaskStatus: draft|published|archived
+  status      String           @default("published")
+  classId     String?
+  ownerId     String
+  dueAt       DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  class       Class?           @relation(fields: [classId], references: [id])
+  owner       User             @relation("TaskOwner", fields: [ownerId], references: [id])
+  submissions TaskSubmission[]
+
+  @@index([classId])
+  @@index([ownerId])
+}
+
+model TaskSubmission {
+  id          String           @id @default(cuid())
+  taskId      String
+  studentId   String
+  // JSON array of asset ids, e.g. "[\"ck1...\",\"ck2...\"]"
+  assetIds    String           @default("[]")
+  webProjectId String?
+  // submitted | reviewed | returned
+  status      String           @default("submitted")
+  comment     String?
+  score       Int?
+  featured    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  task        Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  student     User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  webProject  WebProject?      @relation(fields: [webProjectId], references: [id])
+
+  @@index([taskId])
+  @@index([studentId])
+}
+
+// ---------- Assets ----------
+
+// ---------- Growth book (成长手册) ----------
+// 学生在授课过程中的问答记录、游戏成绩、分享内容等，自动汇入成长手册，
+// 供家长扫码在公开成长页 /g/:slug 查看。创作类作品仍走 Asset。
+
+model GrowthRecord {
+  id        String   @id @default(cuid())
+  studentId String
+  // quiz(答题) | game(游戏成绩) | debate(思辨观点) | share(分享) | creation(创作)
+  kind      String
+  // 来源游戏/环节 slug，如 turing-test / find-ai / detective-summary
+  gameSlug  String
+  title     String
+  summary   String?
+  // JSON string：完整问答内容、得分明细等
+  detail    String?
+  mediaUrl  String?
+  createdAt DateTime @default(now())
+
+  student   User     @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([studentId])
+  @@index([gameSlug])
+}
+
+model Asset {
+  id             String         @id @default(cuid())
+  ownerId        String
+  type           String
+  title          String
+  summary        String?
+  content        String?
+  url            String?
+  thumbnailUrl   String?
+  // JSON string (object) of provider/model/prompt/etc
+  meta           String?
+  // pending | approved | rejected | auto_flagged
+  reviewStatus   String         @default("approved")
+  // private | class_only | public
+  visibility     String         @default("private")
+  archived       Boolean        @default(false)
+  jobId          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  owner          User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions       AssetVersion[]
+  job            AiGenerationJob? @relation(fields: [jobId], references: [id])
+
+  @@index([ownerId])
+  @@index([type])
+  @@index([reviewStatus])
+}
+
+model AssetVersion {
+  id         String   @id @default(cuid())
+  assetId    String
+  version    Int
+  content    String?
+  url        String?
+  meta       String?
+  createdAt  DateTime @default(now())
+  asset      Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, version])
+}
+
+// ---------- Web projects ----------
+
+model WebProject {
+  id             String              @id @default(cuid())
+  ownerId        String
+  title          String
+  description    String?
+  slug           String?             @unique
+  // draft | published | archived
+  status         String              @default("draft")
+  currentVersion Int                 @default(1)
+  publishedVersionId String?
+  // private | class_only | public
+  visibility     String              @default("private")
+  // approved | pending | rejected | auto_flagged
+  reviewStatus   String              @default("approved")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  owner          User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  versions       WebProjectVersion[]
+  submissions    TaskSubmission[]
+  featuredOnHomepages StudentHomepage[]
+
+  @@index([ownerId])
+  @@index([status])
+}
+
+model WebProjectVersion {
+  id         String    @id @default(cuid())
+  projectId  String
+  version    Int
+  html       String
+  css        String?
+  js         String?
+  prompt     String?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  project    WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, version])
+}
+
+// ---------- Homepage ----------
+
+model StudentHomepage {
+  id         String          @id @default(cuid())
+  userId     String          @unique
+  title      String          @default("我的 AI 作品主页")
+  intro      String?
+  coverUrl   String?
+  published  Boolean         @default(true)
+  slug       String          @unique
+  autoLayout Boolean         @default(true)
+  // 学生选定的「课程主页」展示网页（须为已发布的 WebProject）
+  featuredWebProjectId String?
+  featuredWebProject   WebProject? @relation(fields: [featuredWebProjectId], references: [id], onDelete: SetNull)
+  // JSON object string (layout config). Nullable.
+  layout     String?
+  updatedAt  DateTime        @updatedAt
+  createdAt  DateTime        @default(now())
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  blocks     HomepageBlock[]
+}
+
+model HomepageBlock {
+  id          String         @id @default(cuid())
+  homepageId  String
+  order       Int
+  blockType   String
+  // JSON object string
+  data        String         @default("{}")
+  homepage    StudentHomepage @relation(fields: [homepageId], references: [id], onDelete: Cascade)
+
+  @@index([homepageId])
+}
+
+// ---------- AI providers & models ----------
+
+model AiProvider {
+  id           String         @id @default(cuid())
+  name         String         @unique
+  displayName  String
+  type         String
+  baseUrl      String?
+  authKeyRef   String?
+  // active | disabled
+  status       String         @default("active")
+  // JSON object string, nullable
+  config       String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  models       AiModel[]
+}
+
+model AiModel {
+  id           String           @id @default(cuid())
+  providerId   String
+  code         String
+  displayName  String
+  // text | image | video | web | poster | ppt | multimodal | code
+  capability   String
+  enabled      Boolean          @default(true)
+  cost         Int              @default(1)
+  // JSON object string, nullable
+  config       String?
+  provider     AiProvider       @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([providerId, code])
+  @@index([capability])
+}
+
+model AiGenerationJob {
+  id              String      @id @default(cuid())
+  userId          String
+  // text|image|video|web|poster|ppt|mixed|code
+  jobType         String
+  providerName    String
+  modelCode       String?
+  prompt          String?
+  // JSON object string
+  input           String?
+  // JSON object string
+  output          String?
+  // queued|running|succeeded|failed|cancelled
+  status          String      @default("queued")
+  externalTaskId  String?
+  error           String?
+  cost            Int         @default(0)
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assets          Asset[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([jobType])
+}
+
+model PromptTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  // JobType string
+  category    String
+  description String?
+  prompt      String
+  // JSON array string of tags
+  tags        String   @default("[]")
+  enabled     Boolean  @default(true)
+  builtIn     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+}
+
+// ---------- Review ----------
+
+model ReviewRecord {
+  id            String       @id @default(cuid())
+  targetType    String
+  targetId      String
+  reviewerId    String?
+  // pending|approved|rejected|auto_flagged
+  status        String
+  reason        String?
+  createdAt     DateTime     @default(now())
+  reviewer      User?        @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+
+  @@index([targetType, targetId])
+}
+
+// ---------- Quota ----------
+
+model QuotaAccount {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  balance   Int      @default(9999)
+  monthly   Int      @default(9999)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model QuotaTransaction {
+  id         String        @id @default(cuid())
+  userId     String
+  amount     Int
+  // grant|consume|refund|reset
+  type       String
+  reason     String?
+  operatorId String?
+  createdAt  DateTime      @default(now())
+  user       User          @relation("QuotaUser", fields: [userId], references: [id], onDelete: Cascade)
+  operator   User?         @relation("QuotaOperator", fields: [operatorId], references: [id])
+
+  @@index([userId])
+}
+
+// ---------- Misc ----------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  target    String?
+  // JSON object string
+  detail    String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([action])
+  @@index([userId])
+}
+
+model SystemConfig {
+  key       String   @id
+  // JSON value string (supports any JSON type)
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model SensitiveWord {
+  id        String   @id @default(cuid())
+  word      String   @unique
+  severity  Int      @default(1)
+  category  String?
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ---------- Messaging (parent <-> teacher) ----------
+
+model Conversation {
+  id            String    @id @default(cuid())
+  parentId      String
+  teacherId     String
+  studentId     String?
+  lastMessageAt DateTime  @default(now())
+  parentUnread  Int       @default(0)
+  teacherUnread Int       @default(0)
+  createdAt     DateTime  @default(now())
+
+  parent        User      @relation("ConvParent", fields: [parentId], references: [id], onDelete: Cascade)
+  teacher       User      @relation("ConvTeacher", fields: [teacherId], references: [id], onDelete: Cascade)
+  messages      Message[]
+
+  @@unique([parentId, teacherId, studentId])
+  @@index([parentId])
+  @@index([teacherId])
+  @@index([studentId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  senderId       String
+  body           String
+  attachmentUrl  String?
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User         @relation("MsgSender", fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([senderId])
+}
+
+model PlazaItem {
+  id          String     @id @default(cuid())
+  title       String
+  summary     String?
+  coverUrl    String?
+  targetType  String
+  targetId    String
+  studentId   String
+  featured    Boolean    @default(false)
+  // private|class_only|public
+  visibility  String     @default("public")
+  createdAt   DateTime   @default(now())
+
+  @@index([targetType, targetId])
+  @@index([studentId])
+}

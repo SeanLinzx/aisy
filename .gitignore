@@ -1,0 +1,34 @@
+node_modules
+.pnpm-store
+dist
+build
+.next
+out
+coverage
+.DS_Store
+
+# env
+.env
+.env.local
+.env.*.local
+
+# uploads
+apps/api/uploads/*
+!apps/api/uploads/.gitkeep
+
+# prisma
+apps/api/prisma/**/*.db
+apps/api/prisma/**/*.db-*
+apps/api/prisma/migrations/dev.db*
+
+# 生产持久化数据（服务器上的挂载卷）
+data/
+
+# 课件等大文件不进仓库
+*.pptx
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
