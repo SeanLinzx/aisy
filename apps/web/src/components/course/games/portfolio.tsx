@@ -121,7 +121,7 @@ export function PortfolioGame() {
       setAssetId(result.assetId);
       setHasSaved(true);
 
-      router.push('/student/course/g/portfolio/studio');
+      router.push('/studio/portfolio');
     } catch (e: unknown) {
       setError(friendlyApiError((e as Error)?.message || '生成失败'));
     } finally {
@@ -142,7 +142,7 @@ export function PortfolioGame() {
           <div className="font-extrabold text-emerald-800">✅ 你已有作品集</div>
           <p className="text-sm text-ink-soft">可以继续微调，或重新填写下方信息生成新版本。</p>
           <div className="flex flex-wrap gap-2">
-            <Link href="/student/course/g/portfolio/studio" className="kid-button-primary !py-2 !px-4 text-sm">
+            <Link href="/studio/portfolio" className="kid-button-primary !py-2 !px-4 text-sm">
               🔄 进入作品集预览页
             </Link>
             {pageUrl && (
@@ -236,7 +236,13 @@ export function PortfolioGame() {
         <button onClick={generate} disabled={busy} className="kid-button-primary w-full">
           {busy ? '✨ AI 正在制作并保存…' : '✨ 生成作品集'}
         </button>
-        {busy && <AiProgress label="AI 正在制作你的作品集，完成后会打开预览页…" />}
+        {busy && (
+          <AiProgress
+            label="AI 正在制作你的作品集，完成后会打开预览页…"
+            estimate="平均约 3 分钟"
+            durationMs={180_000}
+          />
+        )}
         {error && (
           <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
         )}

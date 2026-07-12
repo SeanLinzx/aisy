@@ -8,11 +8,13 @@ import { AssetsService } from '../assets/assets.service';
 import { ConfigsService } from '../configs/configs.service';
 import { containsSensitive } from '../../common/utils/html-sanitize';
 import { persistImageUrl, persistImageUrls } from '../../common/utils/image-store';
+import { concatVideoFiles } from '../../common/utils/video-concat';
 import { sanitizeCopyrightTerms } from '../../common/utils/prompt-sanitize';
 import { ReferenceMediaItem, AiProviderAdapter } from '../ai/ai.types';
 import { VideoTaskPoller } from './video-task.poller';
 import { MusicTaskPoller } from './music-task.poller';
 import { WebProjectsService } from '../web-projects/web-projects.service';
+import { publishPath } from '../../common/utils/public-url';
 import { createMusicClient } from '../ai/providers/volcengine-music.client';
 
 export interface GenerateTextDto {
@@ -75,6 +77,13 @@ export interface SaveCreationSessionDto {
   jobId?: string;
   /** 提示词素材默认在素材库隐藏，可通过 showHidden 查看 */
   hidePromptInLibrary?: boolean;
+}
+
+export interface ConcatVideoDto {
+  videoUrls: string[];
+  title?: string;
+  segmentJobIds?: string[];
+  courseGame?: string;
 }
 
 @Injectable()
@@ -416,6 +425,40 @@ export class AiGenerateService {
     }
   }
 
+  /** 将多段已生成的视频按顺序拼接为完整视频，并写入素材库。 */
+  async concatVideos(userId: string, dto: ConcatVideoDto) {
+    const urls = (dto.videoUrls || []).map((u) => u?.trim()).filter(Boolean) as string[];
+    if (urls.length < 2) {
+      throw new BadRequestException('至少需要 2 段视频才能拼接');
+    }
+
+    let mergedUrl: string;
+    try {
+      mergedUrl = await concatVideoFiles(urls);
+    } catch (e: any) {
+      this.logger.warn(`concatVideos failed: ${e?.message}`);
+      throw new BadRequestException(e?.message || '视频拼接失败，请稍后重试');
+    }
+
+    const title = dto.title?.trim() || `拼接视频 · ${urls.length} 段`;
+    const asset = await this.assets.create({
+      ownerId: userId,
+      type: 'video',
+      title,
+      url: mergedUrl,
+      thumbnailUrl: mergedUrl,
+      meta: {
+        kind: 'concatenated',
+        segmentCount: urls.length,
+        segmentJobIds: dto.segmentJobIds,
+        courseGame: dto.courseGame,
+        sourceUrls: urls,
+      },
+    });
+
+    return { videoUrl: mergedUrl, assetId: asset.id, asset };
+  }
+
   // ---- Music (async) ----
   async submitMusic(userId: string, dto: SubmitMusicDto) {
     const lyrics = dto.lyrics?.trim();
@@ -561,7 +604,7 @@ export class AiGenerateService {
       prompt: dto.optimizedPrompt,
     });
     const published = await this.webProjects.publish(project.id, userId, 'student');
-    const pageUrl = `/p/${published.slug}`;
+    const pageUrl = publishPath(published.slug!);
 
     const thumb =
       dto.kind === 'image' && dto.imageUrls?.[0]

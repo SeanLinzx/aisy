@@ -11,6 +11,7 @@ const CANCEL_SUB_KEY = 'course.cancel-sub.active';
 const GROUP_GRAB_KEY = 'course.group-grab.active';
 const GAME_PROGRESS_KEY = 'course.game-progress.active';
 const SUMMARY_KEY = 'course.detective-summary.active';
+const VIDEO_RECOGNITION_KEY = 'course.video-recognition.active';
 
 const GROUP_EMOJIS = ['🕵️', '🌟', '🚀', '🎨', '🔍', '💡', '🎯', '👯', '🌈', '🦄'];
 
@@ -113,14 +114,15 @@ export class CourseService {
   // ---- 教师中控台聚合状态（一次轮询替代 5+ 个请求） ----
 
   async getConsoleState(games?: string[]): Promise<ConsoleState> {
-    const [classroom, cancelSub, groupGrab, gameProgress, summary] = await Promise.all([
+    const [classroom, cancelSub, groupGrab, gameProgress, summary, videoRecognition] = await Promise.all([
       this.getClassroom(),
       this.getCancelSub(),
       this.getGroupGrab(),
       this.getGameProgress(games),
       this.getSummary(),
+      this.getVideoRecognition(),
     ]);
-    return { classroom, cancelSub, groupGrab, gameProgress, summary, now: Date.now() };
+    return { classroom, cancelSub, groupGrab, gameProgress, summary, videoRecognition, now: Date.now() };
   }
 
   async getTuring(): Promise<TuringSession | null> {
@@ -584,6 +586,8 @@ export class CourseService {
         (await this.readState<GameProgressSession>(GAME_PROGRESS_KEY, { fresh: true }))
         ?? this.emptyGameProgressSession();
       const key = `${studentId}:${input.gameSlug}`;
+      const prevRecord = prev.records[key];
+      const items = this.mergeGameProgressItems(prevRecord, input);
       const record: GameProgressRecord = {
         studentId,
         displayName: displayName || studentId,
@@ -595,10 +599,14 @@ export class CourseService {
         imageUrls: input.imageUrls?.slice(0, 12),
         videoUrl: input.videoUrl,
         thumbnailUrl: input.thumbnailUrl || input.imageUrls?.[0] || input.videoUrl,
-        items: input.items?.slice(0, 20),
-        roundCount: input.roundCount,
+        items,
+        roundCount: input.roundCount ?? (items && items.length > 0 ? items.length : prevRecord?.roundCount),
         summary: input.summary?.slice(0, 200),
         error: input.error?.slice(0, 300),
+        themeId: input.themeId,
+        themes: input.themes
+          ? { ...(prevRecord?.themes || {}), ...input.themes }
+          : prevRecord?.themes,
         updatedAt: Date.now(),
       };
       prev.records[key] = record;
@@ -622,6 +630,50 @@ export class CourseService {
 
   async clearGameProgress(): Promise<{ ok: true }> {
     return this.clearState(GAME_PROGRESS_KEY);
+  }
+
+  /** 合并学生在同一环节多次创作的作品历史（最多保留 20 条） */
+  private mergeGameProgressItems(
+    prevRecord: GameProgressRecord | undefined,
+    input: GameProgressReportInput,
+  ): GameProgressItem[] | undefined {
+    if (input.items?.length) return input.items.slice(0, 20);
+
+    const prev = [...(prevRecord?.items || [])];
+
+    if (input.status !== 'done') {
+      return prev.length > 0 ? prev : undefined;
+    }
+
+    const urls = [
+      ...(input.imageUrls || []),
+      ...(input.videoUrl ? [input.videoUrl] : []),
+      ...(input.thumbnailUrl && !input.imageUrls?.length && !input.videoUrl ? [input.thumbnailUrl] : []),
+    ];
+
+    for (const url of urls) {
+      if (!url || prev.some((item) => item.url === url)) continue;
+      prev.push({
+        url,
+        prompt: input.prompt?.slice(0, 500),
+        label: `第 ${prev.length + 1} 件`,
+        status: 'done',
+      });
+    }
+
+    if (urls.length === 0 && input.text?.trim()) {
+      const textSig = input.text.trim().slice(0, 120);
+      const dup = prev.some((item) => !item.url && item.prompt === textSig);
+      if (!dup) {
+        prev.push({
+          prompt: textSig,
+          label: input.title?.slice(0, 100) || `第 ${prev.length + 1} 件`,
+          status: 'done',
+        });
+      }
+    }
+
+    return prev.length > 0 ? prev.slice(-20) : undefined;
   }
 
   private emptyGameProgressSession(): GameProgressSession {
@@ -689,6 +741,103 @@ export class CourseService {
     session.updatedAt = Date.now();
     return this.writeState(SUMMARY_KEY, session);
   }
+
+  // ---- AI 视频识别 · 课堂问答 ----
+
+  async getVideoRecognition(): Promise<VideoRecognitionSession | null> {
+    return this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY);
+  }
+
+  async reportVideoRecognitionAnswers(
+    studentId: string,
+    displayName: string,
+    answers: VideoRecognitionAnswerInput[],
+    done?: boolean,
+  ): Promise<VideoRecognitionSession> {
+    return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
+      const session =
+        (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
+        ?? this.emptyVideoRecognitionSession();
+      const prev = session.records[studentId];
+      const record: VideoRecognitionStudentRecord = {
+        studentId,
+        displayName: displayName || prev?.displayName || studentId,
+        answers: { ...(prev?.answers || {}) },
+        done: !!done,
+        updatedAt: Date.now(),
+      };
+      for (const a of answers) {
+        if (!a.questionId) continue;
+        record.answers[a.questionId] = {
+          optionId: a.optionId,
+          optionLabel: a.optionLabel?.slice(0, 100),
+        };
+      }
+      session.records[studentId] = record;
+      session.active = true;
+      return this.saveVideoRecognition(session);
+    });
+  }
+
+  async setVideoRecognitionCurrentQuestion(question: number): Promise<VideoRecognitionSession> {
+    return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
+      const session =
+        (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
+        ?? this.emptyVideoRecognitionSession();
+      session.currentQuestion = Math.max(1, Math.min(10, Math.floor(question)));
+      return this.saveVideoRecognition(session);
+    });
+  }
+
+  async resetVideoRecognition(): Promise<VideoRecognitionSession> {
+    return this.runExclusive(VIDEO_RECOGNITION_KEY, () => this.saveVideoRecognition(this.emptyVideoRecognitionSession()));
+  }
+
+  async clearVideoRecognition(): Promise<{ ok: true }> {
+    return this.clearState(VIDEO_RECOGNITION_KEY);
+  }
+
+  private emptyVideoRecognitionSession(): VideoRecognitionSession {
+    const now = Date.now();
+    return { id: `vr${now}`, active: true, currentQuestion: 1, createdAt: now, updatedAt: now, records: {} };
+  }
+
+  private async saveVideoRecognition(session: VideoRecognitionSession): Promise<VideoRecognitionSession> {
+    session.updatedAt = Date.now();
+    return this.writeState(VIDEO_RECOGNITION_KEY, session);
+  }
+
+  // ---- 游戏草稿（学生端跨主题 / 刷新恢复） ----
+
+  private gameDraftKey(userId: string, gameSlug: string) {
+    return `game.draft.${userId}.${gameSlug}`;
+  }
+
+  async getGameDraft(userId: string, gameSlug: string): Promise<GameDraft | null> {
+    return this.readState<GameDraft>(this.gameDraftKey(userId, gameSlug));
+  }
+
+  async saveGameDraft(userId: string, gameSlug: string, input: SaveGameDraftInput): Promise<GameDraft> {
+    const key = this.gameDraftKey(userId, gameSlug);
+    return this.runExclusive(key, async () => {
+      const prev =
+        (await this.readState<GameDraft>(key, { fresh: true }))
+        ?? this.emptyGameDraft();
+      if (input.themes) {
+        prev.themes = { ...prev.themes, ...input.themes };
+      }
+      if (input.themeId && input.theme) {
+        prev.themes[input.themeId] = input.theme;
+      }
+      if (input.activeThemeId) prev.activeThemeId = input.activeThemeId;
+      prev.updatedAt = Date.now();
+      return this.writeState(key, prev);
+    });
+  }
+
+  private emptyGameDraft(): GameDraft {
+    return { version: 1, themes: {}, activeThemeId: 'nailong', updatedAt: Date.now() };
+  }
 }
 
 /** 教师中控台一次轮询取回的聚合状态 */
@@ -698,7 +847,30 @@ export interface ConsoleState {
   groupGrab: GroupGrabSession | null;
   gameProgress: GameProgressSession | null;
   summary: SummarySession | null;
+  videoRecognition: VideoRecognitionSession | null;
   now: number;
+}
+
+/** 单个主题的装修草稿 */
+export interface DecorateRoomThemeDraft {
+  nodes: Array<{ id: string; parentId: string | null; request: string; url: string }>;
+  currentId: string;
+  savedAssetId?: string | null;
+  nodeSeq?: number;
+}
+
+export interface GameDraft {
+  version: 1;
+  themes: Record<string, DecorateRoomThemeDraft>;
+  activeThemeId: string;
+  updatedAt: number;
+}
+
+export interface SaveGameDraftInput {
+  themeId?: string;
+  theme?: DecorateRoomThemeDraft;
+  themes?: Record<string, DecorateRoomThemeDraft>;
+  activeThemeId?: string;
 }
 
 export type ClassroomMode = 'game' | 'slides' | 'showcase';
@@ -802,6 +974,18 @@ export interface GameProgressItem {
   status?: string;
 }
 
+export interface DecorateRoomThemeProgress {
+  themeId: string;
+  status: GameProgressStatus;
+  prompt?: string;
+  imageUrls?: string[];
+  thumbnailUrl?: string;
+  items?: GameProgressItem[];
+  roundCount?: number;
+  summary?: string;
+  error?: string;
+}
+
 export interface GameProgressRecord {
   studentId: string;
   displayName: string;
@@ -817,6 +1001,8 @@ export interface GameProgressRecord {
   roundCount?: number;
   summary?: string;
   error?: string;
+  themeId?: string;
+  themes?: Record<string, DecorateRoomThemeProgress>;
   updatedAt: number;
 }
 
@@ -841,6 +1027,8 @@ export interface GameProgressReportInput {
   roundCount?: number;
   summary?: string;
   error?: string;
+  themeId?: string;
+  themes?: Record<string, DecorateRoomThemeProgress>;
 }
 
 // ---- 大侦探总结分享 ----
@@ -872,4 +1060,34 @@ export interface SummarySession {
   createdAt: number;
   updatedAt: number;
   records: Record<string, SummaryStudentRecord>;
+}
+
+// ---- AI 视频识别 ----
+
+export interface VideoRecognitionAnswerInput {
+  questionId: string;
+  optionId?: string;
+  optionLabel?: string;
+}
+
+export interface VideoRecognitionAnswerRecord {
+  optionId?: string;
+  optionLabel?: string;
+}
+
+export interface VideoRecognitionStudentRecord {
+  studentId: string;
+  displayName: string;
+  answers: Record<string, VideoRecognitionAnswerRecord>;
+  done: boolean;
+  updatedAt: number;
+}
+
+export interface VideoRecognitionSession {
+  id: string;
+  active: boolean;
+  currentQuestion: number;
+  createdAt: number;
+  updatedAt: number;
+  records: Record<string, VideoRecognitionStudentRecord>;
 }

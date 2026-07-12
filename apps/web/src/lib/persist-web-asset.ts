@@ -1,5 +1,7 @@
 import { api } from '@/lib/api';
+import { publishPath } from '@/lib/public-url';
 import { persistCourseWebProject } from '@/lib/course-web-project';
+import { mergeWebHtml } from '@/lib/merge-web-html';
 
 export type WebAssetKind =
   | 'interaction'
@@ -37,11 +39,13 @@ export async function persistWebAsset(opts: {
     setAsHomepage: opts.setAsHomepage,
   });
 
+  // content 字段要保存「完整可渲染」的单文件 HTML（内联好 css/js），
+  // 这样任何直接读取 asset.content 做预览的地方（如各游戏的 Studio 重新打开）都不会丢样式/脚本。
   const payload = {
     type: 'web' as const,
     title: opts.title,
     summary: opts.summary,
-    content: opts.html,
+    content: mergeWebHtml({ html: opts.html, css: opts.css, js: opts.js }),
     url,
     thumbnailUrl: opts.thumbnailUrl,
     meta: {
@@ -68,7 +72,12 @@ export function webAssetHref(asset: {
   url?: string | null;
   meta?: unknown;
 }): string | null {
-  if (asset.url) return asset.url;
+  if (asset.url) {
+    const u = asset.url.trim();
+    if (/^https?:\/\//i.test(u)) return u;
+    if (u.startsWith('/p/')) return publishPath(u.slice(3));
+    return u;
+  }
   const meta =
     typeof asset.meta === 'string'
       ? (() => {
@@ -80,7 +89,7 @@ export function webAssetHref(asset: {
         })()
       : asset.meta;
   if (meta && typeof meta === 'object' && typeof (meta as { slug?: string }).slug === 'string') {
-    return `/p/${(meta as { slug: string }).slug}`;
+    return publishPath((meta as { slug: string }).slug);
   }
   return null;
 }

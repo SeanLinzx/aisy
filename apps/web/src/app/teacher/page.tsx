@@ -8,7 +8,7 @@ export default function TeacherHome() {
   const classes = useQuery({ queryKey: ['t-classes'], queryFn: () => api.get('/classes/mine').then(r => r.data) });
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <h1 className="text-2xl font-bold text-brand-dark">👨‍🏫 老师工作台</h1>
       <div className="grid sm:grid-cols-4 gap-4">
         <Stat label="学生数" value={overview.data?.users ?? '-'} emoji="🧒" />

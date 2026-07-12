@@ -4,7 +4,7 @@ import { EXPLORE_EXTRA_TOOLS, EXPLORE_TOOLS } from '@/lib/explore-tools';
 
 export default function ExplorePage() {
   return (
-    <div className="space-y-8 max-w-6xl">
+    <div className="space-y-8">
       <header className="relative overflow-hidden rounded-4xl p-6 md:p-8 bg-gradient-to-br from-amber-100 via-orange-50 to-yellow-100 border-2 border-orange-100 shadow-pop-sm">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <span className="absolute top-3 right-6 text-4xl animate-float-slow">🎧</span>
@@ -25,7 +25,7 @@ export default function ExplorePage() {
         <h2 className="font-display text-xl font-extrabold mb-4 flex items-center gap-2">
           <span className="text-2xl">🧰</span> 创作工具
         </h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
           {EXPLORE_TOOLS.map((t, i) => (
             <Link
               key={t.href}
@@ -48,7 +48,7 @@ export default function ExplorePage() {
         <h2 className="font-display text-xl font-extrabold mb-4 flex items-center gap-2">
           <span className="text-2xl">✨</span> 更多创作
         </h2>
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {EXPLORE_EXTRA_TOOLS.map((t, i) => (
             <Link
               key={t.href}

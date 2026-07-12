@@ -11,5 +11,5 @@ export default async function ParentLayout({ children }: { children: React.React
   const me = await getServerUser();
   if (!me) redirect('/login');
   if (me.role !== 'parent') redirect('/forbidden');
-  return <RoleShell user={me} navItems={nav} title="家长视角">{children}</RoleShell>;
+  return <RoleShell user={me} navItems={nav} title="家长视角"><div className="page-container">{children}</div></RoleShell>;
 }

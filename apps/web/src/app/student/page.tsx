@@ -4,19 +4,17 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { EXPLORE_TOOLS } from '@/lib/explore-tools';
 import { resolveUploadPath } from '@/lib/upload-url';
-import { StudentGroupScoreCard } from '@/components/student-group-score-card';
 
 const tools = EXPLORE_TOOLS;
 
 export default function StudentHome() {
   const overview = useQuery({ queryKey: ['student-overview'], queryFn: () => api.get('/dashboard/mine').then(r => r.data) });
-  const tasks = useQuery({ queryKey: ['student-tasks'], queryFn: () => api.get('/tasks').then(r => r.data) });
 
   const greet = greeting();
   const userName: string = overview.data?.user?.displayName || overview.data?.displayName || '小创作家';
 
   return (
-    <div className="space-y-8 max-w-6xl">
+    <div className="space-y-8">
       {/* 欢迎卡片 */}
       <header className="relative overflow-hidden rounded-4xl p-6 md:p-8 bg-gradient-to-br from-orange-100 via-pink-50 to-sky-100 border-2 border-orange-100 shadow-pop-sm">
         <div aria-hidden className="pointer-events-none absolute inset-0">
@@ -57,9 +55,6 @@ export default function StudentHome() {
         </Link>
       </section>
 
-      {/* 小组积分 */}
-      <StudentGroupScoreCard />
-
       {/* 探索模式快捷入口 */}
       <section>
         <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
@@ -70,7 +65,7 @@ export default function StudentHome() {
             查看全部 →
           </Link>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {tools.map((t, i) => (
             <Link
               key={t.href}
@@ -89,76 +84,39 @@ export default function StudentHome() {
         </div>
       </section>
 
-      {/* 任务 / 作品 */}
-      <div className="grid md:grid-cols-2 gap-6">
-        <section className="kid-card-yellow">
-          <h3 className="font-display font-extrabold text-lg flex items-center gap-2">
-            <span className="kid-emoji-bubble !w-10 !h-10 !text-xl bg-gradient-to-br from-amber-200 to-orange-300">📋</span>
-            本节课任务
-          </h3>
-          <div className="mt-4 space-y-2">
-            {tasks.isLoading && <div className="text-sm text-ink-soft font-semibold">加载中…</div>}
-            {tasks.data?.length === 0 && (
-              <div className="text-center py-6 text-ink-soft">
-                <div className="text-4xl mb-2">🎉</div>
-                <div className="text-sm font-semibold">现在没有任务，可以自由创作啦！</div>
-              </div>
-            )}
-            {tasks.data?.slice(0, 5).map((t: any) => (
-              <Link
-                key={t.id}
-                href={`/student/tasks/${t.id}`}
-                className="flex items-center justify-between text-sm font-semibold rounded-2xl px-3 py-2.5 bg-white/80 border-2 border-amber-100 hover:bg-amber-50 hover:border-amber-300 transition group"
-              >
-                <span className="flex items-center gap-2 truncate">
-                  <span className="text-base group-hover:animate-wiggle">📝</span>
-                  <span className="truncate">{t.title}</span>
-                </span>
-                <span className="tag-yellow shrink-0">{t.type}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
-
-        <section className="kid-card-pink">
-          <h3 className="font-display font-extrabold text-lg flex items-center gap-2">
-            <span className="kid-emoji-bubble !w-10 !h-10 !text-xl bg-gradient-to-br from-pink-200 to-rose-300">🎁</span>
-            我的最近作品
-          </h3>
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            {overview.data?.recent?.length ? overview.data.recent.map((a: any) => (
-              <Link
-                key={a.id}
-                href="/student/assets"
-                className="aspect-square bg-white rounded-2xl border-2 border-pink-100 flex items-center justify-center text-xs text-ink-soft font-semibold overflow-hidden hover:scale-105 transition shadow-pop-sm"
-              >
-                {a.url ? (
-                  <img src={resolveUploadPath(a.url)} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="px-2 text-center">{a.title}</span>
-                )}
-              </Link>
-            )) : (
-              <div className="col-span-3 text-center py-6 text-ink-soft">
-                <div className="text-4xl mb-2">🎨</div>
-                <div className="text-sm font-semibold">还没作品，去创作一个吧！</div>
-              </div>
-            )}
-          </div>
-          <Link
-            href="/student/homepage"
-            className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-pink-600 hover:gap-2 transition-all mr-4"
-          >
-            我的主页 <span>→</span>
-          </Link>
-          <Link
-            href="/student/assets"
-            className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-pink-600 hover:gap-2 transition-all"
-          >
-            查看全部素材 <span>→</span>
-          </Link>
-        </section>
-      </div>
+      {/* 最近作品 */}
+      <section className="kid-card-pink">
+        <h3 className="font-display font-extrabold text-lg flex items-center gap-2">
+          <span className="kid-emoji-bubble !w-10 !h-10 !text-xl bg-gradient-to-br from-pink-200 to-rose-300">🎁</span>
+          我的最近作品
+        </h3>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          {overview.data?.recent?.length ? overview.data.recent.map((a: any) => (
+            <Link
+              key={a.id}
+              href="/student/assets"
+              className="aspect-square bg-white rounded-2xl border-2 border-pink-100 flex items-center justify-center text-xs text-ink-soft font-semibold overflow-hidden hover:scale-105 transition shadow-pop-sm"
+            >
+              {a.url ? (
+                <img src={resolveUploadPath(a.url)} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="px-2 text-center">{a.title}</span>
+              )}
+            </Link>
+          )) : (
+            <div className="col-span-3 text-center py-6 text-ink-soft">
+              <div className="text-4xl mb-2">🎨</div>
+              <div className="text-sm font-semibold">还没作品，去创作一个吧！</div>
+            </div>
+          )}
+        </div>
+        <Link
+          href="/student/assets"
+          className="mt-2 inline-flex items-center gap-1 text-xs font-bold text-pink-600 hover:gap-2 transition-all"
+        >
+          查看全部素材 <span>→</span>
+        </Link>
+      </section>
     </div>
   );
 }

@@ -15,7 +15,7 @@ export function GameShell({ slug, children }: { slug: string; children: ReactNod
   const { prev, next } = getAdjacentGames(slug);
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 w-full max-w-none">
       {!locked && (
         <div className="flex items-center gap-2 flex-wrap">
           <Link

@@ -6,6 +6,8 @@ interface Part {
   id: string;
   emoji: string;
   label: string;
+  /** 推荐摆放的区域（用于「提交」后给出温和的小建议，不代表唯一正确答案） */
+  idealZone: string;
 }
 
 interface Zone {
@@ -14,21 +16,22 @@ interface Zone {
   label: string;
 }
 
+// 6 个零件：状态区 2 个 + 卡牌区 1 个 + 按钮区 2 个 + 成绩区 1 个
 const PARTS: Part[] = [
-  { id: 'title', emoji: '🏷️', label: '标题' },
-  { id: 'avatar', emoji: '🕵️', label: '侦探头像' },
-  { id: 'list', emoji: '📋', label: '排行榜/列表' },
-  { id: 'score', emoji: '⭐', label: '分数' },
-  { id: 'caption', emoji: '📝', label: '说明文字' },
-  { id: 'button', emoji: '🔘', label: '按钮' },
-  { id: 'result', emoji: '💬', label: '结果提示' },
+  { id: 'title', emoji: '🕵️', label: '游戏标题', idealZone: 'status' },
+  { id: 'timer', emoji: '⏱️', label: '计时器', idealZone: 'status' },
+  { id: 'cards', emoji: '🔍', label: '侦探卡牌区', idealZone: 'cards' },
+  { id: 'restart', emoji: '🔄', label: '重新开始按钮', idealZone: 'button' },
+  { id: 'hint', emoji: '💡', label: '查看提示', idealZone: 'button' },
+  { id: 'result', emoji: '🏆', label: '通关成绩', idealZone: 'result' },
 ];
 
-// 位置区（不再暗示"正确答案"，孩子自己决定摆哪儿）
+// 位置区（不暗示"正确答案"，孩子自己决定摆哪儿；提交后才给小建议）
 const ZONES: Zone[] = [
-  { id: 'top', emoji: '⬆️', label: '最上面' },
-  { id: 'middle', emoji: '➡️', label: '中间' },
-  { id: 'bottom', emoji: '⬇️', label: '最下面' },
+  { id: 'status', emoji: '⬆️', label: '状态区（最上面）' },
+  { id: 'cards', emoji: '🃏', label: '卡牌区（中间）' },
+  { id: 'button', emoji: '🔘', label: '按钮区' },
+  { id: 'result', emoji: '⬇️', label: '成绩区（最下面）' },
 ];
 
 function shuffle<T>(arr: T[]): T[] {
@@ -48,40 +51,44 @@ function emptyPlacements(): Record<string, string | null> {
 function MockItem({ part }: { part: Part }) {
   switch (part.id) {
     case 'title':
-      return <div className="text-lg font-extrabold text-center">🕵️ 侦探排行榜</div>;
-    case 'avatar':
+      return <div className="text-base font-extrabold text-center">🕵️ 小侦探·记忆力挑战</div>;
+    case 'timer':
       return (
-        <div className="flex items-center gap-2">
-          <span className="w-7 h-7 rounded-full bg-orange-200 flex items-center justify-center text-sm">🕵️</span>
-          <span className="text-sm font-bold">小侦探</span>
-        </div>
-      );
-    case 'list':
-      return (
-        <div className="text-sm space-y-1">
-          <div>🥇 小红</div>
-          <div>🥈 小明</div>
-          <div>🥉 小刚</div>
-        </div>
-      );
-    case 'score':
-      return (
-        <span className="inline-block bg-amber-100 text-amber-700 font-bold text-xs px-2 py-1 rounded-full">
-          ⭐ 98 分
+        <span className="inline-block bg-slate-100 text-slate-600 font-bold text-xs px-2 py-1 rounded-full">
+          ⏱️ 12.3s
         </span>
       );
-    case 'caption':
-      return <div className="text-xs text-slate-400">这是本周表现最好的小侦探～</div>;
-    case 'button':
+    case 'cards':
+      return (
+        <div className="grid grid-cols-4 gap-1.5">
+          {['❓', '🔍', '❓', '🔍'].map((c, i) => (
+            <div
+              key={i}
+              className={`aspect-square rounded-lg flex items-center justify-center text-sm font-bold ${
+                c === '❓' ? 'bg-teal-700 text-teal-100' : 'bg-white border-2 border-teal-200'
+              }`}
+            >
+              {c}
+            </div>
+          ))}
+        </div>
+      );
+    case 'restart':
       return (
         <button type="button" className="bg-brand text-white font-bold text-xs px-4 py-2 rounded-full">
-          立即抽签 🎲
+          🔄 重新挑战
+        </button>
+      );
+    case 'hint':
+      return (
+        <button type="button" className="bg-violet-100 text-violet-700 font-bold text-xs px-4 py-2 rounded-full border-2 border-violet-200">
+          💡 查看提示
         </button>
       );
     case 'result':
       return (
-        <div className="inline-block bg-white border-2 border-violet-200 text-violet-700 text-xs font-bold rounded-2xl px-3 py-1.5 shadow">
-          💬 恭喜被选中啦！
+        <div className="inline-block bg-white border-2 border-amber-200 text-amber-700 text-xs font-bold rounded-2xl px-3 py-1.5 shadow">
+          🏆 用时12.3s · 翻牌8次！
         </div>
       );
     default:
@@ -94,6 +101,7 @@ export function LayoutArrangeGame() {
   const [placements, setPlacements] = useState<Record<string, string | null>>(emptyPlacements);
   const [dragging, setDragging] = useState<{ id: string; x: number; y: number } | null>(null);
   const [recorded, setRecorded] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const zoneRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const draggingRef = useRef<string | null>(null);
 
@@ -123,6 +131,7 @@ export function LayoutArrangeGame() {
         }
         setPlacements((p) => ({ ...p, [id]: landedZone }));
         setRecorded(false);
+        setFeedback(null);
       }
       setDragging(null);
     }
@@ -144,27 +153,50 @@ export function LayoutArrangeGame() {
     [placements],
   );
 
+  function zoneLabel(id: string): string {
+    return ZONES.find((z) => z.id === id)?.label ?? id;
+  }
+
   function recordDesign() {
     setRecorded(true);
     reportGrowth({
       kind: 'game',
       gameSlug: 'layout-arrange',
-      title: '🧱 摆一摆页面布局',
+      title: '🧱 摆一摆侦探游戏布局',
       summary: `摆了一次页面布局：已摆放 ${placedCount}/${PARTS.length} 个零件`,
       detail: { placements },
     });
   }
 
+  function submitDesign() {
+    if (placedCount < PARTS.length) {
+      setFeedback({ ok: false, message: `还有 ${PARTS.length - placedCount} 个零件没摆呢，先把它们都放到合适的位置，再来提交试试～` });
+      return;
+    }
+    const mismatched = PARTS.filter((p) => placements[p.id] !== p.idealZone);
+    recordDesign();
+    if (mismatched.length === 0) {
+      setFeedback({ ok: true, message: '🎉 太棒了！这样摆又清楚又好用，翻牌小游戏一眼就能看明白～' });
+    } else {
+      const pick = mismatched[Math.floor(Math.random() * mismatched.length)];
+      setFeedback({
+        ok: false,
+        message: `把「${pick.label}」放到「${zoneLabel(pick.idealZone)}」会不会更好呢？试一下～`,
+      });
+    }
+  }
+
   function reset() {
     setPlacements(emptyPlacements());
     setRecorded(false);
+    setFeedback(null);
   }
 
   return (
     <div className="space-y-4">
       <div className="kid-card-purple">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🧩 把下面的<b>页面零件</b>拖到你觉得合适的位置，右边会马上生成你的页面预览！怎么摆没有唯一答案，摆完看看效果，觉得不满意就再摆一次～
+          🧩 把下面 6 个「小侦探·记忆力挑战」游戏<b>页面零件</b>拖到你觉得合适的位置，右边会马上生成预览！摆完点<b>「📤 提交检查」</b>，AI 会给你一点小建议～
         </p>
       </div>
 
@@ -252,8 +284,8 @@ export function LayoutArrangeGame() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={recordDesign} className="kid-button-primary flex-1" disabled={placedCount === 0}>
-              {recorded ? '✅ 已记录！' : '✅ 记录我的设计'}
+            <button onClick={submitDesign} className="kid-button-primary flex-1" disabled={placedCount === 0}>
+              📤 提交检查
             </button>
             <button onClick={reset} className="kid-button-ghost">
               🔄 清空重摆
@@ -271,6 +303,24 @@ export function LayoutArrangeGame() {
           style={{ left: dragging.x - 40, top: dragging.y - 20 }}
         >
           {draggingPart.emoji} {draggingPart.label}
+        </div>
+      )}
+
+      {feedback && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setFeedback(null)}
+        >
+          <div className="kid-card max-w-sm w-full text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-5xl">{feedback.ok ? '🏆' : '🕵️'}</div>
+            <div className="font-extrabold text-lg mt-2">{feedback.ok ? '提交成功！' : 'AI 小建议'}</div>
+            <p className="text-sm text-ink-soft leading-relaxed mt-2">{feedback.message}</p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setFeedback(null)} className="kid-button-primary flex-1">
+                {feedback.ok ? '太好了！' : '我再试试看'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

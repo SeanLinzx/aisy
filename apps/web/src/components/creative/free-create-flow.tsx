@@ -4,18 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { buildCreationSessionHtml } from '@/lib/creation-session-html';
-import { resolveUploadPath } from '@/lib/upload-url';
+import { resolveUploadPath, resolveVideoPlaybackUrl } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { AiProgress } from '@/components/course/ai-progress';
 import { VideoGenTimeHint } from '@/components/video-gen-time-hint';
 import { ReferenceImageField } from '@/components/reference-image-field';
 import { ImageResultActions, VideoResultActions } from '@/components/media-result-actions';
+import { InlineVideoPlayer } from '@/components/inline-video-player';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
 import type { TrackedCreationGame } from '@/lib/course-game-progress';
 
 type Kind = 'image' | 'video';
-type Step = 'input' | 'optimize' | 'generate' | 'done';
+type Step = 'input' | 'generate' | 'done';
+
+const FREE_VIDEO_DURATION = 3;
 
 interface JobRow {
   id: string;
@@ -29,9 +31,16 @@ interface JobRow {
 export function FreeCreateFlow({
   kind,
   progressSlug,
+  refImageMode = 'optional',
+  fromCourse,
+  lessonSlug,
 }: {
   kind: Kind;
   progressSlug?: TrackedCreationGame;
+  /** 视频参考图：hidden=不显示 / optional=可选上传 / required=有首帧必填 */
+  refImageMode?: 'hidden' | 'optional' | 'required';
+  fromCourse?: boolean;
+  lessonSlug?: string;
 }) {
   const reportProgress = useReportGameProgress(progressSlug || 'video-free');
   const report = useCallback(
@@ -47,7 +56,6 @@ export function FreeCreateFlow({
   const [title, setTitle] = useState('');
   const [size, setSize] = useState('1K');
   const [n, setN] = useState(1);
-  const [duration, setDuration] = useState(5);
   const [ratio, setRatio] = useState('16:9');
   const [refImage, setRefImage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -60,16 +68,17 @@ export function FreeCreateFlow({
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [savedToLibrary, setSavedToLibrary] = useState(false);
   const [savingVideo, setSavingVideo] = useState(false);
+  const [savingImageIdx, setSavingImageIdx] = useState<number | null>(null);
 
   const previewHtml = useMemo(
     () =>
       buildCreationSessionHtml({
-        title: title || optimized.slice(0, 16) || '我的创作',
+        title: title || rawInput.slice(0, 16) || '我的创作',
         kind,
         rawPrompt: rawInput,
-        optimizedPrompt: optimized,
+        optimizedPrompt: kind === 'image' ? rawInput : rawInput || optimized,
         imageUrls: imageUrls.map(resolveUploadPath),
-        videoUrl: videoUrl ? resolveUploadPath(videoUrl) : undefined,
+        videoUrl: videoUrl ? resolveVideoPlaybackUrl(videoUrl) : undefined,
       }),
     [title, kind, rawInput, optimized, imageUrls, videoUrl],
   );
@@ -122,32 +131,17 @@ export function FreeCreateFlow({
     };
   }, [kind, videoJobId, report]);
 
-  async function runOptimize() {
-    if (!rawInput.trim()) return;
-    setBusy(true);
-    setError(null);
-    setSessionSaved(false);
-    setPageUrl(null);
-    setSavedToLibrary(false);
-    try {
-      const r = await api.post('/ai-generate/optimize-prompt', {
-        rawInput: rawInput.trim(),
-        target: kind,
-      });
-      setOptimized(r.data.optimized);
-      if (!title) setTitle(rawInput.trim().slice(0, 20));
-      setStep('optimize');
-    } catch (e: unknown) {
-      setError((e as Error).message || '优化失败');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function runGenerate(promptOverride?: string) {
-    const prompt = (promptOverride ?? optimized).trim();
+    const prompt = (promptOverride ?? (kind === 'video' ? rawInput : optimized)).trim();
     if (!prompt) return;
-    if (promptOverride) {
+    if (kind === 'video' && refImageMode === 'required' && !refImage.trim()) {
+      setError('请先上传首帧参考图。');
+      return;
+    }
+    if (kind === 'video') {
+      setOptimized(prompt);
+      if (!title) setTitle(prompt.slice(0, 20));
+    } else if (promptOverride) {
       setOptimized(promptOverride);
       if (!title) setTitle(promptOverride.slice(0, 20));
     }
@@ -186,7 +180,7 @@ export function FreeCreateFlow({
           originalPrompt: rawInput,
           mode: 'free',
           references: refs,
-          duration,
+          duration: FREE_VIDEO_DURATION,
           ratio,
           generateAudio: true,
         });
@@ -196,7 +190,7 @@ export function FreeCreateFlow({
     } catch (e: unknown) {
       setError((e as Error).message || '生成失败');
       void report({ status: 'failed', prompt, error: (e as Error).message || '生成失败' });
-      setStep('optimize');
+      setStep(kind === 'image' ? 'input' : 'generate');
     } finally {
       if (kind === 'image') setBusy(false);
     }
@@ -208,9 +202,9 @@ export function FreeCreateFlow({
     try {
       const r = await api.post('/ai-generate/creation-sessions', {
         kind,
-        title: title || optimized.slice(0, 20) || '我的创作',
+        title: title || rawInput.slice(0, 20) || '我的创作',
         rawPrompt: rawInput,
-        optimizedPrompt: optimized,
+        optimizedPrompt: kind === 'image' ? rawInput : rawInput || optimized,
         imageUrls: kind === 'image' ? imageUrls : undefined,
         videoUrl: kind === 'video' ? videoUrl : undefined,
         resultAssetId: resultAssetId ?? undefined,
@@ -233,7 +227,7 @@ export function FreeCreateFlow({
     try {
       const r = await api.post('/assets', {
         type: 'video',
-        title: title || optimized.slice(0, 20) || 'AI 视频',
+        title: title || rawInput.slice(0, 20) || 'AI 视频',
         url: videoUrl,
         meta: { jobId: videoJobId, manualSaved: true },
       });
@@ -246,46 +240,68 @@ export function FreeCreateFlow({
     }
   }
 
+  async function saveImageToLibrary(url: string, index: number) {
+    setSavingImageIdx(index);
+    setError(null);
+    try {
+      const r = await api.post('/assets', {
+        type: 'image',
+        title: title || rawInput.slice(0, 20) || `AI图片-${index + 1}`,
+        url,
+        meta: { source: 'free-image', manualSaved: true },
+      });
+      setResultAssetId(r.data.id);
+      setSavedToLibrary(true);
+    } catch (e: unknown) {
+      setError((e as Error).message || '保存失败');
+    } finally {
+      setSavingImageIdx(null);
+    }
+  }
+
+  const imageSteps = ['input', 'generate', 'done'] as const;
+  const stepLabels = ['① 说出想法', '② 生成作品', '③ 保存记录'];
+
+  const effectivePrompt = kind === 'image' ? rawInput.trim() : rawInput.trim() || optimized.trim();
+  const videoPrompt = rawInput.trim();
+
   const canSave =
     step === 'done' &&
     !sessionSaved &&
-    optimized &&
+    effectivePrompt &&
     (kind === 'image' ? imageUrls.length > 0 : !!videoUrl);
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap gap-2 text-xs">
-        {(['input', 'optimize', 'generate', 'done'] as Step[]).map((s, i) => {
-          const labels = ['① 说出想法', '② 优化提示词', '③ 生成作品', '④ 保存记录'];
-          const active = step === s;
-          const done =
-            (s === 'input' && rawInput) ||
-            (s === 'optimize' && optimized) ||
-            (s === 'generate' && (imageUrls.length > 0 || videoJobId)) ||
-            (s === 'done' && (imageUrls.length > 0 || videoUrl));
-          return (
-            <span
-              key={s}
-              className={`px-3 py-1.5 rounded-full font-bold border ${
-                active
-                  ? 'bg-brand text-white border-brand'
-                  : done
-                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                    : 'bg-white text-slate-500 border-orange-100'
-              }`}
-            >
-              {labels[i]}
-            </span>
-          );
-        })}
-      </div>
+      {kind === 'image' && (
+        <div className="flex flex-wrap gap-2 text-xs">
+          {imageSteps.map((s, i) => {
+            const active = step === s;
+            const done =
+              (s === 'input' && rawInput) ||
+              (s === 'generate' && imageUrls.length > 0) ||
+              (s === 'done' && imageUrls.length > 0);
+            return (
+              <span
+                key={s}
+                className={`px-3 py-1.5 rounded-full font-bold border ${
+                  active
+                    ? 'bg-brand text-white border-brand'
+                    : done
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-white text-slate-500 border-orange-100'
+                }`}
+              >
+                {stepLabels[i]}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div className="kid-card space-y-4">
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-semibold">💭 用你自己的话描述想做什么</label>
-            <VoiceInputButton onResult={(t) => setRawInput((p) => (p ? `${p}\n${t}` : t))} />
-          </div>
+          <label className="text-sm font-semibold">💭 用你自己的话描述想做什么</label>
           <textarea
             className="kid-textarea min-h-[100px]"
             value={rawInput}
@@ -298,40 +314,66 @@ export function FreeCreateFlow({
           />
         </div>
 
-        {step === 'input' && (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={runOptimize}
-              disabled={busy || !rawInput.trim()}
-              className="kid-button-primary"
-            >
-              {busy ? 'AI 正在优化…' : '✨ AI 优化提示词'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void runGenerate(rawInput.trim())}
-              disabled={busy || !rawInput.trim()}
-              className="kid-button-ghost text-sm"
-            >
-              {busy ? '生成中…' : '直接生成（不优化提示词）'}
-            </button>
-          </div>
+        {kind === 'image' && (step === 'input' || step === 'done') && (
+          <>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-semibold">尺寸</label>
+                <select className="kid-input mt-2" value={size} onChange={(e) => setSize(e.target.value)}>
+                  <option value="1K">1K 标清（更快，推荐）</option>
+                  <option value="2K">2K 高清</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">张数</label>
+                <select className="kid-input mt-2" value={n} onChange={(e) => setN(Number(e.target.value))}>
+                  <option value={1}>1 张</option>
+                  <option value={2}>2 张</option>
+                </select>
+              </div>
+            </div>
+            <ReferenceImageField value={refImage} onChange={setRefImage} />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void runGenerate(rawInput.trim())}
+                disabled={busy || !rawInput.trim()}
+                className="kid-button-primary"
+              >
+                {busy ? '生成中…' : step === 'done' ? '🎨 再画一张' : '🎨 开始生图'}
+              </button>
+            </div>
+          </>
         )}
 
-        {(step === 'optimize' || step === 'generate' || step === 'done') && (
+        {kind === 'video' && (
           <>
-            <div>
-              <label className="text-sm font-semibold">✨ 优化后的提示词（可修改）</label>
-              <textarea
-                className="kid-textarea mt-2 min-h-[80px]"
-                value={optimized}
-                onChange={(e) => setOptimized(e.target.value)}
+            {refImageMode !== 'hidden' && (
+              <ReferenceImageField
+                value={refImage}
+                onChange={setRefImage}
+                label={refImageMode === 'required' ? '首帧参考图（必填）' : '参考图（可选）'}
+                hint="点这里上传或从素材库选一张图，不用填链接，AI 会参考它来生视频"
               />
-              <p className="text-xs text-slate-400 mt-1">觉得不合适？直接改一改，再点生成。</p>
+            )}
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-semibold">时长</label>
+                <div className="kid-input mt-2 bg-orange-50/60 text-ink-soft cursor-default">
+                  3 秒（固定，生成更快）
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">比例</label>
+                <select className="kid-input mt-2" value={ratio} onChange={(e) => setRatio(e.target.value)}>
+                  <option value="16:9">16:9</option>
+                  <option value="9:16">9:16</option>
+                  <option value="1:1">1:1</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label className="text-sm font-semibold">作品标题（保存时用）</label>
+              <label className="text-sm font-semibold">作品标题（保存时用，可选）</label>
               <input
                 className="kid-input mt-2"
                 value={title}
@@ -339,70 +381,16 @@ export function FreeCreateFlow({
                 placeholder="给这次创作起个名字"
               />
             </div>
-
-            {kind === 'image' ? (
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-semibold">尺寸</label>
-                  <select className="kid-input mt-2" value={size} onChange={(e) => setSize(e.target.value)}>
-                    <option value="1K">1K 标清（更快，推荐）</option>
-                    <option value="2K">2K 高清</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">张数</label>
-                  <select className="kid-input mt-2" value={n} onChange={(e) => setN(Number(e.target.value))}>
-                    <option value={1}>1 张</option>
-                    <option value={2}>2 张</option>
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <div className="grid sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-semibold">时长</label>
-                  <select
-                    className="kid-input mt-2"
-                    value={duration}
-                    onChange={(e) => setDuration(Number(e.target.value))}
-                  >
-                    <option value={5}>5 秒</option>
-                    <option value={8}>8 秒</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-semibold">比例</label>
-                  <select className="kid-input mt-2" value={ratio} onChange={(e) => setRatio(e.target.value)}>
-                    <option value="16:9">16:9</option>
-                    <option value="9:16">9:16</option>
-                    <option value="1:1">1:1</option>
-                  </select>
-                </div>
-              </div>
-            )}
-            <ReferenceImageField value={refImage} onChange={setRefImage} />
-
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={() => setStep('input')} className="kid-button-ghost text-sm">
-                ← 重新输入想法
-              </button>
-              <button
-                type="button"
-                onClick={runOptimize}
-                disabled={busy}
-                className="kid-button-ghost text-sm"
-              >
-                重新优化
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void runGenerate()}
-                disabled={busy || !optimized.trim()}
+                disabled={busy || !videoPrompt || (refImageMode === 'required' && !refImage.trim())}
                 className="kid-button-primary"
               >
-                {busy && kind === 'video' ? '已提交，生成中…' : busy ? '生成中…' : kind === 'image' ? '🎨 开始生图' : '🎬 开始生视频'}
+                {busy ? '已提交，生成中…' : '🎬 开始生视频'}
               </button>
-              {kind === 'video' && <VideoGenTimeHint />}
+              <VideoGenTimeHint estimate="3 秒视频约 1–2 分钟" className="!text-[11px]" />
             </div>
           </>
         )}
@@ -410,7 +398,7 @@ export function FreeCreateFlow({
         {busy && (
           <AiProgress
             label={kind === 'image' ? 'AI 正在画图…' : 'AI 正在生成视频，完成后会自动保存到素材库…'}
-            estimate={kind === 'video' ? '平均每段约 3 分钟' : undefined}
+            estimate={kind === 'video' ? '3 秒视频约 1–2 分钟' : undefined}
           />
         )}
         {error && (
@@ -420,7 +408,7 @@ export function FreeCreateFlow({
         )}
       </div>
 
-      {(imageUrls.length > 0 || videoUrl || (kind === 'video' && videoJobId && step !== 'input')) && (
+      {(imageUrls.length > 0 || videoUrl || (kind === 'video' && videoJobId)) && (
         <div className="kid-card space-y-4">
           <h3 className="font-semibold">🖼️ 生成结果</h3>
           {kind === 'image' && (
@@ -436,6 +424,10 @@ export function FreeCreateFlow({
                     url={u}
                     title={title || `AI图片-${i + 1}`}
                     savedToLibrary={savedToLibrary}
+                    fromCourse={fromCourse}
+                    lessonSlug={lessonSlug}
+                    saving={savingImageIdx === i}
+                    onSave={savedToLibrary ? undefined : () => void saveImageToLibrary(u, i)}
                   />
                 </div>
               ))}
@@ -443,10 +435,10 @@ export function FreeCreateFlow({
           )}
           {kind === 'video' && videoUrl && (
             <>
-              <video src={resolveUploadPath(videoUrl)} controls className="w-full max-h-80 rounded-xl bg-black" />
+              <InlineVideoPlayer src={resolveUploadPath(videoUrl)} height="h-80" />
               <VideoResultActions
                 url={videoUrl}
-                title={title || optimized.slice(0, 20) || 'AI视频'}
+                title={title || rawInput.slice(0, 20) || 'AI视频'}
                 savedToLibrary={savedToLibrary}
                 assetId={resultAssetId}
                 saving={savingVideo}
@@ -457,18 +449,18 @@ export function FreeCreateFlow({
           {kind === 'video' && !videoUrl && videoJobId && (
             <div className="space-y-2">
               <p className="text-sm text-slate-500">视频任务已提交，请稍等…页面会自动刷新结果。</p>
-              <VideoGenTimeHint />
+              <VideoGenTimeHint estimate="3 秒视频约 1–2 分钟" className="!text-[11px]" />
             </div>
           )}
           <AiWarning />
         </div>
       )}
 
-      {(optimized || imageUrls.length > 0 || videoUrl) && (
+      {(effectivePrompt || imageUrls.length > 0 || videoUrl) && (
         <div className="kid-card space-y-3">
           <h3 className="font-semibold">📄 创作页预览</h3>
           <p className="text-xs text-slate-500">
-            保存后会生成独立网页，包含原始想法、优化提示词和作品，并同步到「我的网页」。
+            保存后会生成独立网页，包含你的想法和作品，并同步到「我的网页」。
           </p>
           <iframe
             title="创作页预览"

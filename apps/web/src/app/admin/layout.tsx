@@ -20,5 +20,5 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const me = await getServerUser();
   if (!me) redirect('/login');
   if (me.role !== 'admin') redirect('/forbidden');
-  return <RoleShell user={me} navItems={nav} title="管理员后台">{children}</RoleShell>;
+  return <RoleShell user={me} navItems={nav} title="管理员后台"><div className="page-container">{children}</div></RoleShell>;
 }

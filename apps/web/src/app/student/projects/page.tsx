@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { publishPath } from '@/lib/public-url';
 
 export default function ProjectsPage() {
   const [items, setItems] = useState<any[]>([]);
@@ -82,7 +83,7 @@ export default function ProjectsPage() {
                       🏠 设为主页
                     </button>
                   )}
-                  <a target="_blank" href={`/p/${p.slug}`} className="text-emerald-600">访问 ↗</a>
+                  <a target="_blank" rel="noopener noreferrer" href={publishPath(p.slug)} className="text-emerald-600">访问 ↗</a>
                 </>
               )}
             </div>

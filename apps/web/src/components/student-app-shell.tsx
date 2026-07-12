@@ -1,6 +1,7 @@
 'use client';
 import { RoleShell, type NavItem } from '@/components/role-shell';
 import { ClassroomBar } from '@/components/course/classroom-follow';
+import { ClassroomShowcasePopup } from '@/components/course/classroom-showcase-popup';
 import { useClassroomState } from '@/hooks/use-classroom-state';
 import { StudentClassroomProvider } from '@/contexts/student-classroom-context';
 import { isPadMode } from '@/lib/pad-mode';
@@ -35,10 +36,13 @@ export function StudentAppShell({
       <ClassroomBar
         included={classroom.included}
         locked={classroom.locked}
-        label={classroom.label}
+        label={classroom.showcaseLabel ? `${classroom.label} · ${classroom.showcaseLabel}` : classroom.label}
         isAway={classroom.isAway}
         returnToClass={classroom.returnToClass}
       />
+      {classroom.included && classroom.showcase && (
+        <ClassroomShowcasePopup showcase={classroom.showcase} />
+      )}
     </StudentClassroomProvider>
   );
 }

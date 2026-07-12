@@ -1,10 +1,10 @@
 import { api } from '@/lib/api';
 import { persistCourseWebProject } from '@/lib/course-web-project';
+import { publishPath } from '@/lib/public-url';
 import { splitInlineWebParts } from '@/lib/merge-web-html';
 import { absoluteAssetUrl } from '@/lib/asset-path';
 import { resolveEmbedUrl, resolveUploadPath } from '@/lib/upload-url';
 import { renderFilledSentence } from '@/components/course/fill-blank-sentence';
-import type { PickedElement } from '@/components/course/html-preview';
 
 export interface PortfolioAsset {
   id: string;
@@ -81,8 +81,6 @@ export const INTERACTION_TEMPLATE = {
     { key: 'interactionFeedback', placeholder: '页面出现什么', quickOptions: ['再点一次可以弹出大图或播放视频', '弹出一个介绍窗口，讲讲这个作品是怎么做的'] },
   ],
 };
-
-export type IterationTarget = { kind: 'page' } | { kind: 'element'; element: PickedElement };
 
 export function parseMeta(raw: unknown): Record<string, unknown> {
   if (!raw) return {};
@@ -185,25 +183,22 @@ export function friendlyApiError(message: string) {
   return message;
 }
 
-export function buildIterationPrompt(html: string, target: IterationTarget, instruction: string) {
-  const targetBlock =
-    target.kind === 'page'
-      ? '【修改范围】整页（可以调整布局、配色、文案和交互，但原来的作品都要保留）'
-      : `【修改范围】仅修改用户点选的这一个部分（及其直接相关的样式/结构），不要改动页面其他区域
-【选中元素】${target.element.hint}
-【元素 HTML 片段】
-${target.element.outerHtml}`;
+export function buildIterationPrompt(html: string, instruction: string, blocksContext = '') {
+  const blockSection = blocksContext
+    ? `【小朋友点选的具体部分，请重点参考、优先修改这里（及其直接相关的样式/结构），尽量不要改动页面其他区域】
+${blocksContext}
+
+`
+    : '';
 
   return `这是我当前的作品集网页 HTML：
 ${html}
 
-${targetBlock}
-
-【小学生的修改意见】
+${blockSection}【小学生的修改意见】
 ${instruction.trim()}
 
 要求：
-1. 按修改意见调整，并保持作品集里原有的作品都还在。
+1. 按修改意见调整，并保持作品集里原有的作品都还在。如果上面没有给出「点选的具体部分」，说明修改意见是针对整页的，可以调整整页布局、配色、文案和交互。
 2. 输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。
 3. 只输出 HTML 代码，不要 Markdown 代码块。`;
 }
@@ -274,7 +269,7 @@ export async function persistPortfolio(params: {
   const prompt = buildPromptFromForm(form, buildAssetList(chosen));
   let pid = projectId;
   let slug = publishedSlug;
-  let url = slug ? `/p/${slug}` : '';
+  let url = slug ? publishPath(slug) : '';
   const parts = splitInlineWebParts(htmlContent);
 
   try {

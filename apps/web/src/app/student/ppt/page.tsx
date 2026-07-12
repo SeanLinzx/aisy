@@ -1,8 +1,7 @@
 'use client';
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { api, apiDownloadHref } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { PromptTemplates } from '@/components/prompt-templates';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
@@ -28,14 +27,11 @@ export default function PptPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <ExploreToolHeader title="📊 AI 生成 PPT" desc="告诉 AI 想做什么主题，它会帮你写出 5~8 页的提纲。" />
       <div className="kid-card space-y-3">
         <PromptTemplates category="ppt" onPick={(t) => setPrompt(t.prompt)} />
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-semibold">PPT 主题</label>
-          <VoiceInputButton onResult={(t) => setPrompt(t)} />
-        </div>
+        <label className="text-sm font-semibold">PPT 主题</label>
         <textarea className="kid-textarea" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="例如：我的暑假学习计划，5 页" />
         <button onClick={gen} disabled={loading} className="kid-button-primary">{loading ? '生成中…' : '生成 PPT 内容'}</button>
         {loading && <AiProgress label="AI 正在写 PPT 提纲…" />}
@@ -46,7 +42,7 @@ export default function PptPage() {
         <div className="space-y-3">
           {assetId && (
             <div className="flex items-center gap-3">
-              <a href={`/api/exports/ppt/${assetId}.pptx`} className="kid-button-primary text-sm">⬇️ 下载 .pptx</a>
+              <a href={apiDownloadHref(`/exports/ppt/${assetId}.pptx`)} className="kid-button-primary text-sm">⬇️ 下载 .pptx</a>
               <span className="text-xs text-slate-500">可用 PowerPoint / Keynote / WPS 直接打开</span>
             </div>
           )}

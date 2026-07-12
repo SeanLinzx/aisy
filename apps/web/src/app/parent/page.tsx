@@ -2,14 +2,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { growthPath } from '@/lib/public-url';
+import { assetPath } from '@/lib/asset-path';
 import { resolveUploadPath } from '@/lib/upload-url';
 
 export default function ParentHome() {
   const [children, setChildren] = useState<any[]>([]);
   useEffect(() => { api.get('/parents/children').then(r => setChildren(r.data || [])); }, []);
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <h1 className="text-2xl font-bold text-brand-dark">👨‍👩‍👧 我的孩子</h1>
       {children.length === 0 && <div className="kid-card text-center text-slate-500">暂时还没有绑定孩子，请联系老师协助绑定。</div>}
       <div className="grid md:grid-cols-2 gap-4">
@@ -34,8 +34,8 @@ export default function ParentHome() {
               <Link href={`/parent/report/${c.id}`} className="text-brand">📈 成长报告</Link>
               {c.homepage?.slug && (
                 <>
-                  <a target="_blank" href={`/s/${c.homepage.slug}`} className="text-emerald-600">🌟 课程主页</a>
-                  <a target="_blank" href={growthPath(c.homepage.slug)} className="text-violet-600">📈 成长历程</a>
+                  <a target="_blank" rel="noopener noreferrer" href={assetPath(`/s/${c.homepage.slug}`)} className="text-emerald-600">🌟 课程主页</a>
+                  <a target="_blank" rel="noopener noreferrer" href={assetPath(`/g/${c.homepage.slug}`)} className="text-violet-600">📈 成长历程</a>
                 </>
               )}
             </div>

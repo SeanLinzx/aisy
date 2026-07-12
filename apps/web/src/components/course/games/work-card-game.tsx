@@ -24,7 +24,7 @@ function Intro({ text }: { text: string }) {
 export function WorkCardGame() {
   return (
     <div className="space-y-4">
-      <Intro text="这是你这次训练营的「作品卡 2.0」。说说看你的收获，可以点麦克风用语音输入哦！" />
+      <Intro text="这是你这次训练营的「作品卡 2.0」。说说看你的收获吧！" />
       <WorkCard fields={FINAL_FIELDS} version="2.0" />
     </div>
   );

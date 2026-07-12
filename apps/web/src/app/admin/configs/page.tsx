@@ -15,7 +15,7 @@ export default function ConfigsPage() {
     setKey(''); setValue(''); load();
   }
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 page-container--narrow">
       <h1 className="text-2xl font-bold text-brand-dark">⚙️ 系统配置</h1>
       <div className="kid-card grid sm:grid-cols-3 gap-2">
         <input className="kid-input" value={key} onChange={(e) => setKey(e.target.value)} placeholder="key" />

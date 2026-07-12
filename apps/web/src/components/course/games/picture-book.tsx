@@ -10,7 +10,7 @@ import { useReportGameProgress } from '@/hooks/use-report-game-progress';
 import {
   STORY_FILL_STORAGE_KEY,
   buildPictureBookPrompt,
-  sceneToImageCaption,
+  splitStoryIntoPages,
   type PictureBookStyle,
   type StorySceneForm,
 } from '@/lib/story-course';
@@ -44,6 +44,7 @@ export function PictureBookGame() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasImported, setHasImported] = useState(false);
+  const [showStyle, setShowStyle] = useState(false);
 
   useEffect(() => {
     try {
@@ -67,15 +68,21 @@ export function PictureBookGame() {
         setError('还没有编好的故事，请先完成「填空编故事」游戏。');
         return;
       }
-      const data = JSON.parse(raw) as { title?: string; scenes?: StorySceneForm[] };
-      if (!data.scenes?.length) {
-        setError('上一局故事没有场景信息，请手动填写每页画面。');
+      const data = JSON.parse(raw) as { title?: string; scenes?: StorySceneForm[]; story?: string };
+      const storyText = data.story?.trim();
+      if (!storyText) {
+        setError('请先在「填空编故事」中点击「生成完整故事」后再导入。');
         return;
       }
+
+      const sceneCount = data.scenes?.length ?? 0;
+      const pageCount = sceneCount > 0 ? sceneCount : Math.max(1, storyText.split(/\n+/).filter(Boolean).length);
+      const captions = splitStoryIntoPages(storyText, pageCount);
+
       setScenes(
-        data.scenes.map((s, i) => ({
+        captions.map((caption, i) => ({
           id: `p${i + 1}`,
-          caption: sceneToImageCaption(s),
+          caption,
           status: 'idle' as const,
         })),
       );
@@ -83,7 +90,7 @@ export function PictureBookGame() {
       setHasImported(true);
       setError(null);
     } catch {
-      setError('读取故事失败，请手动填写场景。');
+      setError('读取故事失败，请手动填写每页画面。');
     }
   }
 
@@ -177,93 +184,96 @@ export function PictureBookGame() {
   const doneCount = scenes.filter((s) => s.status === 'done').length;
 
   return (
-    <div className="space-y-5">
-      <div className="kid-card-yellow">
-        <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          📚 为故事的每一页写好画面，AI 会按<strong>统一画风、人物和背景</strong>生成绘本插图。从第二页起会参考第一页，保持角色一致。
+    <div className="w-full space-y-3">
+      <div className="kid-card-yellow !py-2.5 !px-3">
+        <p className="text-xs font-semibold text-ink-soft leading-relaxed">
+          📚 为每一页写好画面，AI 按<strong>统一画风</strong>生成插图；从第二页起参考第一页保持角色一致。
         </p>
       </div>
 
-      <div className="kid-card space-y-3">
+      <div className="kid-card !p-3 space-y-2">
         <div className="flex flex-wrap gap-2 items-center justify-between">
           <label className="text-sm font-bold">绘本标题</label>
           <button type="button" onClick={importFromStoryFill} className="kid-button-sm bg-violet-50 border-violet-200 text-violet-700 text-xs">
-            📥 导入「填空编故事」的场景
+            📥 导入完整故事
           </button>
         </div>
-        <input className="kid-input" value={title} onChange={(e) => setTitle(e.target.value)} />
-        {hasImported && <p className="text-xs text-emerald-700 font-bold">✅ 已从上一关导入场景描述</p>}
+        <input className="kid-input !py-2 text-sm" value={title} onChange={(e) => setTitle(e.target.value)} />
+        {hasImported && <p className="text-[11px] text-emerald-700 font-bold">✅ 已从上一关导入完整故事文本</p>}
       </div>
 
-      <div className="kid-card-purple space-y-3">
-        <div className="text-sm font-bold">🎨 全书统一风格（每页保持一致）</div>
-        <div className="grid sm:grid-cols-3 gap-3">
-          <div>
-            <label className="text-xs font-bold text-ink-soft">画风</label>
-            <input
-              className="kid-input mt-1 text-sm"
-              value={style.artStyle}
-              onChange={(e) => setStyle((s) => ({ ...s, artStyle: e.target.value }))}
-            />
+      <div className="kid-card-purple !p-3">
+        <button
+          type="button"
+          onClick={() => setShowStyle((v) => !v)}
+          className="w-full flex items-center justify-between text-sm font-bold"
+        >
+          <span>🎨 全书统一风格</span>
+          <span className="text-xs text-ink-soft">{showStyle ? '收起 ▲' : '展开 ▼'}</span>
+        </button>
+        {showStyle && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+            <div>
+              <label className="text-[11px] font-bold text-ink-soft">画风</label>
+              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.artStyle} onChange={(e) => setStyle((s) => ({ ...s, artStyle: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-ink-soft">主角外貌</label>
+              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.character} onChange={(e) => setStyle((s) => ({ ...s, character: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-ink-soft">背景风格</label>
+              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.background} onChange={(e) => setStyle((s) => ({ ...s, background: e.target.value }))} />
+            </div>
           </div>
-          <div>
-            <label className="text-xs font-bold text-ink-soft">主角外貌</label>
-            <input
-              className="kid-input mt-1 text-sm"
-              value={style.character}
-              onChange={(e) => setStyle((s) => ({ ...s, character: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs font-bold text-ink-soft">背景风格</label>
-            <input
-              className="kid-input mt-1 text-sm"
-              value={style.background}
-              onChange={(e) => setStyle((s) => ({ ...s, background: e.target.value }))}
-            />
-          </div>
-        </div>
+        )}
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {scenes.map((scene, i) => (
-          <div key={scene.id} className="kid-card space-y-3">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="font-extrabold">📄 第 {i + 1} 页</span>
+          <div key={scene.id} className="kid-card !p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-extrabold text-sm">📄 第 {i + 1} 页</span>
               <button
                 type="button"
                 disabled={!!generatingId || busy}
                 onClick={() => void generateOne(scene.id, scenes[0]?.imageUrl)}
-                className="kid-button-sm bg-white border-2 border-orange-200 text-xs"
+                className="kid-button-sm bg-white border-2 border-orange-200 text-xs shrink-0"
               >
                 {generatingId === scene.id ? '生成中…' : '只生成本页'}
               </button>
             </div>
-            <textarea
-              className="kid-textarea !min-h-[72px] text-sm"
-              value={scene.caption}
-              onChange={(e) => updateCaption(scene.id, e.target.value)}
-              placeholder="这一页画面里发生了什么？例如：小女孩在森林入口发现一张会发光的地图"
-            />
-            {scene.status === 'generating' && (
-              <div className="aspect-[4/3] rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-center text-sm font-bold text-amber-700 animate-pulse">
-                AI 正在画这一页…
-              </div>
-            )}
-            {scene.imageUrl && scene.status === 'done' && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={resolveUploadPath(scene.imageUrl)}
-                alt={`第 ${i + 1} 页`}
-                className="w-full rounded-2xl border-2 border-orange-100"
+            <div className="grid md:grid-cols-2 gap-3 items-start">
+              <textarea
+                className="kid-textarea !min-h-[96px] text-sm leading-relaxed"
+                value={scene.caption}
+                onChange={(e) => updateCaption(scene.id, e.target.value)}
+                placeholder="这一页画面里发生了什么？"
               />
-            )}
-            {scene.status === 'failed' && (
-              <p className="text-xs text-rose-600">{scene.error || '生成失败'}</p>
-            )}
-            {scene.caption && scene.status === 'idle' && (
-              <p className="text-xs text-ink-soft italic border-l-2 border-violet-200 pl-2">{scene.caption}</p>
-            )}
+              <div className="min-h-[96px]">
+                {scene.status === 'generating' && (
+                  <div className="h-full min-h-[96px] rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-xs font-bold text-amber-700 animate-pulse">
+                    AI 正在画这一页…
+                  </div>
+                )}
+                {scene.imageUrl && scene.status === 'done' && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={resolveUploadPath(scene.imageUrl)}
+                    alt={`第 ${i + 1} 页`}
+                    className="w-full h-full min-h-[96px] max-h-56 object-contain rounded-xl border-2 border-orange-100 bg-white"
+                  />
+                )}
+                {scene.status === 'failed' && (
+                  <p className="text-xs text-rose-600 bg-rose-50 rounded-xl px-2 py-2">{scene.error || '生成失败'}</p>
+                )}
+                {scene.status === 'idle' && !scene.imageUrl && (
+                  <div className="h-full min-h-[96px] rounded-xl border-2 border-dashed border-orange-100 bg-orange-50/40 flex items-center justify-center text-[11px] text-ink-soft">
+                    生成后插图会显示在这里
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         ))}
         <button type="button" onClick={addScene} className="kid-button-ghost text-sm">
@@ -271,8 +281,8 @@ export function PictureBookGame() {
         </button>
       </div>
 
-      <div className="flex flex-wrap gap-2 items-center">
-        <button onClick={() => void generateAll()} disabled={busy || !!generatingId} className="kid-button-primary">
+      <div className="flex flex-wrap gap-2 items-center sticky bottom-3 z-10 bg-[#fff8f0]/90 backdrop-blur-sm rounded-2xl p-2 border border-orange-100 shadow-sm">
+        <button onClick={() => void generateAll()} disabled={busy || !!generatingId} className="kid-button-primary !py-2 text-sm">
           {busy ? `逐页生成中 (${doneCount}/${scenes.length})…` : '📚 一键生成整本绘本'}
         </button>
         <Link href="/student/course/g/story-fill" className="kid-button-ghost text-sm">
@@ -280,29 +290,27 @@ export function PictureBookGame() {
         </Link>
       </div>
 
-      {(busy || generatingId) && (
-        <AiProgress label="AI 正在按统一画风绘制绘本…" />
-      )}
+      {(busy || generatingId) && <AiProgress label="AI 正在按统一画风绘制绘本…" />}
       {error && (
         <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
       )}
 
       {doneCount > 0 && (
-        <div className="kid-card-mint">
-          <h3 className="font-extrabold mb-2">📖 绘本预览（{doneCount}/{scenes.length} 页）</h3>
-          <div className="grid sm:grid-cols-2 gap-4">
+        <div className="kid-card-mint !p-3">
+          <h3 className="font-extrabold text-sm mb-2">📖 绘本预览（{doneCount}/{scenes.length} 页）</h3>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {scenes
               .filter((s) => s.imageUrl)
               .map((s, i) => (
-                <div key={s.id} className="space-y-2">
-                  <div className="text-xs font-bold text-ink-soft">第 {i + 1} 页</div>
+                <div key={s.id} className="space-y-1">
+                  <div className="text-[11px] font-bold text-ink-soft">第 {i + 1} 页</div>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={resolveUploadPath(s.imageUrl!)} alt="" className="w-full rounded-xl border border-orange-100" />
-                  <p className="text-xs text-ink-soft line-clamp-3">{s.caption}</p>
+                  <img src={resolveUploadPath(s.imageUrl!)} alt="" className="w-full max-h-40 object-contain rounded-lg border border-orange-100 bg-white" />
+                  <p className="text-[11px] text-ink-soft line-clamp-2">{s.caption}</p>
                 </div>
               ))}
           </div>
-          <div className="mt-4">
+          <div className="mt-3">
             <AiWarning />
           </div>
         </div>

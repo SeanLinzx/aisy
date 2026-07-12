@@ -51,7 +51,7 @@ export const COURSE_LESSONS: CourseLesson[] = [
       { slug: 'group-grab', num: 0, title: '抢组分队', emoji: '👯', desc: '老师设置多个小组名称，大家在电脑上抢想去的小组，满员后自动调剂。', status: 'playable' },
       { slug: 'find-ai', num: 1, title: 'AI 助手在哪里', emoji: '🔍', desc: '在校园 / 家庭 / 公共场景里找出哪些是 AI。', status: 'playable' },
       { slug: 'turing-test', num: 2, title: '图灵测试小游戏', emoji: '🤖', desc: '猜猜哪些回答是 AI、哪些是小朋友写的。', status: 'playable' },
-      { slug: 'work-card-1', num: 13, title: '作品卡 1.0', emoji: '📇', desc: '用语音记录今天的发现（回顾版）。', status: 'playable' },
+      { slug: 'work-card-1', num: 13, title: '作品卡 1.0', emoji: '📇', desc: '写下今天的发现（回顾版）。', status: 'playable' },
     ],
     tools: [
       {
@@ -73,15 +73,10 @@ export const COURSE_LESSONS: CourseLesson[] = [
     games: [
       { slug: 'spot-diff', num: 3, title: 'AI 图片找不同', emoji: '🧐', desc: '找出两张 AI 图片的不同，再看看提示词差在哪。', status: 'playable' },
       { slug: 'keyword-image', num: 4, title: '关键词生图', emoji: '🧩', desc: '点选关键词，组合出提示词来生成图片。', status: 'playable' },
-      { slug: 'decorate-room', num: 5, title: '给奶龙装修房间', emoji: '🐉', desc: '一句话一句话地把奶龙的房间装修起来。', status: 'playable' },
+      { slug: 'free-image', num: 5, title: '自由生图', emoji: '✨', desc: '用自己的话描述想画什么，直接让 AI 画出来。', status: 'playable' },
+      { slug: 'decorate-room', num: 6, title: '给奶龙装修房间', emoji: '🐉', desc: '一句话一句话地把奶龙的房间装修起来。', status: 'playable' },
     ],
     tools: [
-      {
-        href: '/student/image?mode=free&from=course&lesson=lesson2',
-        title: '自由生图',
-        emoji: '✨',
-        desc: '说出想法 → AI 优化提示词 → 生图并保存完整创作记录。',
-      },
       {
         href: '/student/image?mode=guided&from=course&lesson=lesson2',
         title: 'AI 画图工作台',
@@ -99,6 +94,7 @@ export const COURSE_LESSONS: CourseLesson[] = [
     goal: '用填空卡片搭好故事骨架，写藏头诗，再让 AI 把文字变成统一画风的绘本。',
     color: 'yellow',
     games: [
+      { slug: 'clue-card-detective', num: 17, title: 'AI 线索卡大侦探', emoji: '🕵️', desc: '一边是常驻的线索卡，一边是被 AI 篡改的课文，对照线索卡点出写错的地方。', status: 'playable' },
       { slug: 'story-fill', num: 14, title: '填空编故事', emoji: '📝', desc: '为每个场景填写时间、地点、人物和事件，AI 串成完整童话。', status: 'playable' },
       { slug: 'acrostic-poem', num: 16, title: '生成藏头诗', emoji: '🎋', desc: '输入一串藏头字，说明想表达的意向，AI 帮你写一首藏头诗。', status: 'playable' },
       { slug: 'picture-book', num: 15, title: '绘本生成', emoji: '📚', desc: '逐页生成插图，统一画风与角色，第二页起参考第一页保持一致。', status: 'playable' },
@@ -121,22 +117,16 @@ export const COURSE_LESSONS: CourseLesson[] = [
     goal: '学会用故事板描述视频，完成一轮视频生成与迭代。',
     color: 'sky',
     games: [
-      { slug: 'video-detective', num: 6, title: 'AI 视频大侦探', emoji: '🎞️', desc: '看一看，哪些视频是 AI 生成的？', status: 'playable' },
-      { slug: 'keyframe-order', num: 7, title: '关键帧排序', emoji: '🔢', desc: '把关键帧出现的顺序排对（选择题）。', status: 'placeholder' },
-      { slug: 'frame-video', num: 8, title: '首尾帧生视频', emoji: '🪄', desc: '给首帧和尾帧，描述中间发生的事，生成视频。', status: 'playable' },
+      { slug: 'video-detective', num: 6, title: 'AI 视频识别', emoji: '🎞️', desc: '看老师大屏上的视频，在电脑上选答案；老师能实时看到全班选项。', status: 'playable' },
+      { slug: 'video-studio', num: 7, title: '自由生视频', emoji: '✨', desc: '无首帧或有首帧自由生视频，填写描述后直接生成。', status: 'playable' },
+      { slug: 'frame-video', num: 8, title: '关键帧生视频', emoji: '🪄', desc: '上传关键帧图片，描述中间发生的事，AI 生成过渡视频。', status: 'playable' },
     ],
     tools: [
       {
-        href: '/student/video?mode=free&from=course&lesson=lesson3',
-        title: '自由生视频',
+        href: '/student/course/g/video-studio',
+        title: '自由生视频工作台',
         emoji: '✨',
-        desc: '说出想法 → AI 优化提示词 → 生视频并保存完整创作网页。',
-      },
-      {
-        href: '/student/video?mode=guided&from=course&lesson=lesson3',
-        title: '视频生成工作台',
-        emoji: '🎬',
-        desc: '填写描述提交异步任务，完成后视频存入素材库。',
+        desc: '无首帧或有首帧自由生视频，作品自动同步到老师看板。',
       },
     ],
   },
@@ -146,15 +136,16 @@ export const COURSE_LESSONS: CourseLesson[] = [
     title: 'AI 与交互',
     subtitle: 'AI 网页积木课',
     emoji: '🧱',
-    goal: '理解「内容」和「应用」的区别，学会用场景、布局、交互三件事描述一个小应用，并亲手做出小侦探·记忆力挑战、AI 作品集和自己的小应用。',
+    goal: '理解「内容」和「应用」的区别，学会用场景、布局、交互三件事描述一个小应用，并亲手优化小侦探·记忆力挑战、用选择题设计翻牌游戏、做出 AI 作品集和自己的小应用。',
     color: 'purple',
     games: [
       { slug: 'cancel-subscription', num: 9, title: '来取消续费吧', emoji: '💳', desc: '黄金会员页面里找「取消续费」，再点「确认取消」！', status: 'playable' },
-      { slug: 'layout-arrange', num: 10, title: '摆一摆页面布局', emoji: '🧩', desc: '把标题、按钮、内容、反馈这些零件拖到合适的位置，学会摆布局。', status: 'playable' },
+      { slug: 'layout-arrange', num: 10, title: '摆一摆侦探游戏布局', emoji: '🧩', desc: '把游戏标题、计时器、卡牌区、按钮、查看提示、成绩这 6 个零件拖到合适的位置，摆完点「提交检查」，AI 会给你小建议。', status: 'playable' },
       { slug: 'mini-interaction', num: 11, title: '做一个小交互', emoji: '👆', desc: '下拉选「点哪里 + 单击/双击/右键/拖拽 + 效果」，可一条一条叠加交互。', status: 'playable' },
-      { slug: 'memory-match', num: 12, title: '小侦探·记忆力挑战', emoji: '🕵️', desc: '翻开线索卡，找出相同的侦探Emoji！做选择题定好场景、布局、交互，还能自己设定每关卡片数量、翻牌次数和时间限制，AI 生成见习/线索/王牌侦探三关翻牌游戏，登上侦探记忆力排行榜。', status: 'playable' },
-      { slug: 'portfolio', num: 13, title: 'AI 作品集', emoji: '🖼️', desc: '选作品 + 填空说清楚场景、布局、交互三件事，一键生成我的作品展示页。', status: 'playable' },
-      { slug: 'freeform-app', num: 14, title: '做自己的 AI 小应用', emoji: '🪄', desc: '自己选题！填空说清楚场景、布局、交互三件事，AI 帮你做出一个真正能玩的小应用。', status: 'playable' },
+      { slug: 'memory-match', num: 12, title: '小侦探·记忆力挑战', emoji: '🕵️', desc: '每人默认有一份可玩的三关翻牌小游戏，可直接进「小游戏优化」改细节、试玩或打开游戏网页。', status: 'playable' },
+      { slug: 'memory-match-create', num: 13, title: '设计你的侦探翻牌游戏', emoji: '🎨', desc: '分四步做选择题：选场景、布局、交互和难度，AI 按你的选择生成见习/线索/王牌侦探三关翻牌游戏，生成后可继续优化。', status: 'playable' },
+      { slug: 'portfolio', num: 14, title: 'AI 作品集', emoji: '🖼️', desc: '选作品 + 填空说清楚场景、布局、交互三件事，一键生成我的作品展示页。', status: 'playable' },
+      { slug: 'freeform-app', num: 15, title: '做自己的 AI 小应用', emoji: '🪄', desc: '自己选题！填空说清楚场景、布局、交互三件事，AI 帮你做出一个真正能玩的小应用。', status: 'playable' },
     ],
   },
   {
@@ -166,8 +157,8 @@ export const COURSE_LESSONS: CourseLesson[] = [
     goal: '回顾这学期做过的 AI 作品，完成作品卡 2.0，并分享自己的收获与思考。',
     color: 'mint',
     games: [
-      { slug: 'work-card', num: 15, title: '作品卡 2.0', emoji: '📇', desc: '我学会了什么？我未来想做什么？用语音说说看。', status: 'playable' },
-      { slug: 'detective-summary', num: 16, title: '大侦探总结分享', emoji: '🕵️', desc: 'AI 幻觉、智慧之盾、AI 伦理思辨……选出你的答案，讲讲你的收获，老师能实时看到。', status: 'playable' },
+      { slug: 'work-card', num: 16, title: '作品卡 2.0', emoji: '📇', desc: '我学会了什么？我未来想做什么？写下来说说看。', status: 'playable' },
+      { slug: 'detective-summary', num: 17, title: '大侦探总结分享', emoji: '🕵️', desc: 'AI 幻觉、智慧之盾、AI 伦理思辨……选出你的答案，讲讲你的收获，老师能实时看到。', status: 'playable' },
     ],
   },
 ];

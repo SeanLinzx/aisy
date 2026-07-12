@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getServerUser } from '@/lib/auth-server';
-import { RoleShell } from '@/components/role-shell';
+import { TeacherAppShell } from '@/components/teacher-app-shell';
 import { isPadMode } from '@/lib/pad-mode';
 
 const nav = [
@@ -31,13 +31,13 @@ export default async function TeacherLayout({ children }: { children: React.Reac
   if (me.role !== 'teacher' && me.role !== 'admin') redirect('/forbidden');
   const pad = isPadMode();
   return (
-    <RoleShell
+    <TeacherAppShell
       user={me}
       navItems={pad ? padNav : nav}
       title={pad ? '平板控制台' : '老师后台'}
       variant={pad ? 'pad' : 'default'}
     >
-      {children}
-    </RoleShell>
+      <div className="page-container">{children}</div>
+    </TeacherAppShell>
   );
 }

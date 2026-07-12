@@ -33,14 +33,16 @@ export function ClassroomShowcaseView({
   variant = 'student',
 }: {
   showcase: ClassroomShowcase;
-  variant?: 'student' | 'teacher';
+  variant?: 'student' | 'teacher' | 'popup';
 }) {
   const extraImages = (showcase.imageUrls || []).filter(
     (u) => u !== showcase.thumbnailUrl && u !== showcase.imageUrls?.[0],
   );
 
+  const compact = variant === 'popup';
+
   return (
-    <div className={variant === 'student' ? 'space-y-5 max-w-4xl mx-auto' : 'space-y-4'}>
+    <div className={variant === 'student' ? 'space-y-5 w-full min-w-0' : compact ? 'space-y-3' : 'space-y-4'}>
       {variant === 'student' && (
         <header className="text-center space-y-2">
           <div className="text-5xl animate-bounceSoft">🌟</div>
@@ -53,20 +55,24 @@ export function ClassroomShowcaseView({
         </header>
       )}
 
-      <div className="kid-card-orange !p-5 md:!p-6 space-y-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="kid-emoji-bubble bg-gradient-to-br from-amber-200 to-pink-300 text-2xl">
-            🎨
-          </div>
+      <div className={compact ? 'space-y-3' : 'kid-card-orange !p-5 md:!p-6 space-y-4'}>
+        <div className="flex items-center gap-2 flex-wrap">
+          {!compact && (
+            <div className="kid-emoji-bubble bg-gradient-to-br from-amber-200 to-pink-300 text-2xl">
+              🎨
+            </div>
+          )}
           <div>
-            <div className="font-extrabold text-lg">{showcase.displayName}</div>
-            <div className="text-sm text-ink-soft font-semibold">
+            <div className={compact ? 'font-extrabold text-sm' : 'font-extrabold text-lg'}>{showcase.displayName}</div>
+            <div className={compact ? 'text-[11px] text-ink-soft font-semibold' : 'text-sm text-ink-soft font-semibold'}>
               {showcase.title || showcase.gameTitle || '优秀作品'}
             </div>
           </div>
         </div>
 
-        <ShowcaseMedia showcase={showcase} />
+        <div className={compact ? '[&_video]:max-h-[28vh] [&_img]:max-h-[28vh]' : undefined}>
+          <ShowcaseMedia showcase={showcase} />
+        </div>
 
         {extraImages.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -80,18 +86,18 @@ export function ClassroomShowcaseView({
         )}
 
         {showcase.prompt && (
-          <div className="rounded-2xl bg-white border-2 border-orange-100 px-4 py-3">
-            <div className="text-xs font-bold text-ink-soft mb-1">💡 创作提示词</div>
-            <p className="text-sm leading-relaxed">{showcase.prompt}</p>
+          <div className={compact ? 'rounded-xl bg-white border border-orange-100 px-3 py-2' : 'rounded-2xl bg-white border-2 border-orange-100 px-4 py-3'}>
+            <div className="text-[10px] font-bold text-ink-soft mb-1">💡 创作提示词</div>
+            <p className={compact ? 'text-[11px] leading-relaxed line-clamp-4' : 'text-sm leading-relaxed'}>{showcase.prompt}</p>
           </div>
         )}
 
         {(showcase.text || showcase.summary) && (
-          <div className="rounded-2xl bg-violet-50 border-2 border-violet-100 px-4 py-3">
-            <div className="text-xs font-bold text-violet-700 mb-1">
+          <div className={compact ? 'rounded-xl bg-violet-50 border border-violet-100 px-3 py-2' : 'rounded-2xl bg-violet-50 border-2 border-violet-100 px-4 py-3'}>
+            <div className="text-[10px] font-bold text-violet-700 mb-1">
               {showcase.source === 'summary' ? '🎤 分享内容' : '📝 作品说明'}
             </div>
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">{showcase.text || showcase.summary}</p>
+            <p className={compact ? 'text-[11px] leading-relaxed whitespace-pre-wrap line-clamp-6' : 'text-sm leading-relaxed whitespace-pre-wrap'}>{showcase.text || showcase.summary}</p>
           </div>
         )}
 

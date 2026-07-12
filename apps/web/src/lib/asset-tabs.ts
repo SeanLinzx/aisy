@@ -70,6 +70,22 @@ export function isInteractiveWebAsset(asset: { type: string; meta?: unknown }): 
   );
 }
 
+/**
+ * 网页类素材如果有对应的「左预览 + 右对话框」编辑页（studio/课程页），返回站内编辑地址；
+ * 否则返回 null，此时只能查看已发布的只读页面。
+ */
+export function webAssetEditorHref(asset: { type: string; meta?: unknown }): string | null {
+  if (asset.type !== 'web') return null;
+  const meta = parseAssetMeta(asset.meta);
+  const kind = meta?.kind as string | undefined;
+  const sourceGame = meta?.sourceGame as string | undefined;
+  if (kind === 'portfolio') return '/studio/portfolio';
+  if (kind === 'memory-match') return '/studio/memory-match';
+  if (kind === 'web-page' && sourceGame === 'freeform-app') return '/studio/freeform-app';
+  if (kind === 'interaction' && sourceGame === 'mini-interaction') return '/student/course/g/mini-interaction';
+  return null;
+}
+
 export function isHiddenInLibrary(asset: { meta?: unknown }): boolean {
   const meta = parseAssetMeta(asset.meta);
   return meta?.hiddenInLibrary === true;

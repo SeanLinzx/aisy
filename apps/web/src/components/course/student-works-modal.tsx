@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { GameProgressTeacherPanel } from '@/components/course/game-progress-teacher-panel';
 import { SummaryTeacherPanel } from '@/components/course/summary-teacher-panel';
+import { VideoRecognitionTeacherPanel } from '@/components/course/video-recognition-teacher-panel';
 import type { GameProgressRecord } from '@/lib/course-game-progress';
 import type { SummaryStudentRecord } from '@/lib/detective-summary';
 import type { TrackedCreationGame } from '@/lib/course-game-progress';
@@ -25,6 +26,7 @@ export function StudentWorksModal({
   rosterIds,
   session,
   summarySession,
+  videoRecognitionSession,
   onPushShowcase,
   onPushSummary,
   pushingStudentId,
@@ -33,13 +35,14 @@ export function StudentWorksModal({
   onClose: () => void;
   title: string;
   subtitle?: string;
-  mode: 'creation' | 'summary';
+  mode: 'creation' | 'summary' | 'video-recognition';
   gameSlug?: TrackedCreationGame;
   gameSlugs?: TrackedCreationGame[];
   students: StudentOption[];
   rosterIds: string[];
   session?: import('@/lib/course-game-progress').GameProgressSession | null;
   summarySession?: import('@/lib/detective-summary').SummarySession | null;
+  videoRecognitionSession?: import('@/lib/video-recognition').VideoRecognitionSession | null;
   onPushShowcase?: (record: GameProgressRecord) => void;
   onPushSummary?: (record: SummaryStudentRecord) => void;
   pushingStudentId?: string | null;
@@ -89,6 +92,12 @@ export function StudentWorksModal({
               session={summarySession}
               onPushShowcase={onPushSummary}
               pushingStudentId={pushingStudentId}
+            />
+          ) : mode === 'video-recognition' ? (
+            <VideoRecognitionTeacherPanel
+              students={students}
+              rosterIds={rosterIds}
+              session={videoRecognitionSession}
             />
           ) : (
             <GameProgressTeacherPanel

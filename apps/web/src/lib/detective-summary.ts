@@ -94,7 +94,7 @@ export const SUMMARY_QUESTIONS: SummaryQuestion[] = [
       { id: 'future', label: '🚀 对未来的展望' },
     ],
     withText: true,
-    textLabel: '🎤 展开说说吧（可用语音输入）',
+    textLabel: '🎤 展开说说吧',
     textPlaceholder: '例如：我学会了写提示词，做出了会动的奶龙房间，以后想用 AI 帮助更多人……',
   },
 ];

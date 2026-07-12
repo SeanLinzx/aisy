@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { AiProgress } from '@/components/course/ai-progress';
 import {
   buildAcrosticPrompt,
@@ -103,98 +102,107 @@ export function AcrosticPoemGame() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="kid-card-yellow">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
           🎋 输入一串<strong>藏头字</strong>（每个字会成为一句诗的开头），再告诉 AI 你想表达什么，它就会帮你写一首带诗题的藏头诗！
         </p>
       </div>
 
-      <div className="kid-card space-y-4">
-        <div>
-          <label className="text-sm font-bold">藏头字</label>
-          <p className="text-xs text-ink-soft mt-1">连续输入即可，例如「新年快乐」= 四句诗分别以新、年、快、乐开头</p>
-          <input
-            className="kid-input mt-2 text-lg tracking-widest"
-            value={heads}
-            onChange={(e) => setHeads(e.target.value)}
-            placeholder="例如：人工智能"
-            maxLength={16}
-          />
-          {headChars.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {headChars.map((c, i) => (
-                <span
-                  key={`${c}-${i}`}
-                  className="inline-flex items-center gap-1 rounded-xl bg-amber-50 border-2 border-amber-200 px-3 py-1.5 text-sm font-extrabold"
-                >
-                  <span className="text-ink-soft text-xs font-bold">第 {i + 1} 句</span>
-                  <span className="text-xl text-brand">{c}</span>
-                </span>
+      <div className="grid grid-cols-[minmax(240px,2fr)_minmax(0,3fr)] gap-3 items-start">
+        {/* 左侧：输入区 */}
+        <div className="sticky top-4 self-start space-y-3">
+          <div className="kid-card space-y-3">
+            <div>
+              <label className="text-sm font-bold">藏头字</label>
+              <p className="text-xs text-ink-soft mt-0.5">连续输入，如「新年快乐」= 四句分别以新、年、快、乐开头</p>
+              <input
+                className="kid-input mt-1.5 text-lg tracking-widest"
+                value={heads}
+                onChange={(e) => setHeads(e.target.value)}
+                placeholder="例如：人工智能"
+                maxLength={16}
+              />
+              {headChars.length > 0 && (
+                <div className="grid grid-cols-2 gap-1.5 mt-2">
+                  {headChars.map((c, i) => (
+                    <span
+                      key={`${c}-${i}`}
+                      className="inline-flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-extrabold"
+                    >
+                      <span className="text-ink-soft font-bold">第{i + 1}句</span>
+                      <span className="text-lg text-brand">{c}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-bold">创作意向</label>
+              <p className="text-xs text-ink-soft mt-0.5">祝福、写景、励志……</p>
+              <textarea
+                className="kid-textarea !min-h-[72px] mt-1.5 text-sm"
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+                placeholder="例如：赞美老师，好玩又有趣"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-xs font-bold text-ink-soft self-center">例子：</span>
+              {EXAMPLE_HEADS.map((_, i) => (
+                <button key={i} type="button" onClick={() => applyExample(i)} className="kid-button-sm bg-white border-amber-200 text-xs">
+                  {EXAMPLE_HEADS[i]}
+                </button>
               ))}
             </div>
-          )}
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <label className="text-sm font-bold">创作意向</label>
-            <VoiceInputButton onResult={(t) => setTheme((prev) => (prev ? `${prev} ${t}` : t))} />
           </div>
-          <p className="text-xs text-ink-soft mt-1">这首诗想表达什么？可以是祝福、写景、励志……</p>
-          <textarea
-            className="kid-textarea !min-h-[88px] mt-2 text-sm"
-            value={theme}
-            onChange={(e) => setTheme(e.target.value)}
-            placeholder="例如：祝福老师和同学在新的一年里学习进步、天天开心"
-          />
+
+          <button onClick={() => void generatePoem()} disabled={loading} className="kid-button-primary w-full">
+            {loading ? 'AI 正在写诗…' : '🎋 生成藏头诗'}
+          </button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <span className="text-xs font-bold text-ink-soft self-center">试试例子：</span>
-          {EXAMPLE_HEADS.map((_, i) => (
-            <button key={i} type="button" onClick={() => applyExample(i)} className="kid-button-sm bg-white border-amber-200 text-xs">
-              {EXAMPLE_HEADS[i]}
-            </button>
-          ))}
+        {/* 右侧：结果区 */}
+        <div className="min-w-0 space-y-3">
+          {loading && <AiProgress label="AI 正在按藏头字创作诗歌…" />}
+          {error && (
+            <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+          )}
+
+          {poem ? (
+            <div className="kid-card-mint space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-extrabold text-lg">{poemTitle || '📜 你的藏头诗'}</h3>
+                  {poemTitle && <p className="text-xs text-ink-soft font-semibold mt-0.5">AI 为你起的诗题</p>}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {headChars.map((c, i) => (
+                    <span key={`${c}-tag-${i}`} className="text-xs font-bold bg-white/80 border border-emerald-200 rounded-lg px-2 py-0.5">
+                      {c}…
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-2xl bg-white/70 border-2 border-emerald-100 px-4 py-4">
+                <p className="text-base font-bold leading-loose tracking-wide whitespace-pre-wrap text-ink">
+                  {poem}
+                </p>
+              </div>
+              {saved && <p className="text-xs font-bold text-emerald-700">✅ 已保存到素材库</p>}
+              <AiWarning />
+            </div>
+          ) : !loading && !error ? (
+            <div className="kid-card border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center min-h-[200px] px-4 py-8">
+              <span className="text-4xl mb-2">🎋</span>
+              <p className="text-sm font-bold text-ink-soft">在左侧填好藏头字和创作意向</p>
+              <p className="text-xs text-ink-soft mt-1">点击「生成藏头诗」，诗歌会出现在这里</p>
+            </div>
+          ) : null}
         </div>
       </div>
-
-      <button onClick={() => void generatePoem()} disabled={loading} className="kid-button-primary">
-        {loading ? 'AI 正在写诗…' : '🎋 生成藏头诗'}
-      </button>
-
-      {loading && <AiProgress label="AI 正在按藏头字创作诗歌…" />}
-      {error && (
-        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
-      )}
-
-      {poem && (
-        <div className="kid-card-mint space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h3 className="font-extrabold text-lg text-center md:text-left">
-                {poemTitle || '📜 你的藏头诗'}
-              </h3>
-              {poemTitle && <p className="text-xs text-ink-soft font-semibold mt-0.5">AI 为你起的诗题</p>}
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {headChars.map((c, i) => (
-                <span key={`${c}-tag-${i}`} className="text-xs font-bold bg-white/80 border border-emerald-200 rounded-lg px-2 py-0.5">
-                  {c}…
-                </span>
-              ))}
-            </div>
-          </div>
-          <div className="rounded-2xl bg-white/70 border-2 border-emerald-100 px-5 py-6">
-            <p className="text-center text-lg md:text-xl font-bold leading-loose tracking-wide whitespace-pre-wrap text-ink">
-              {poem}
-            </p>
-          </div>
-          {saved && <p className="text-xs font-bold text-emerald-700">✅ 已保存到素材库</p>}
-          <AiWarning />
-        </div>
-      )}
     </div>
   );
 }

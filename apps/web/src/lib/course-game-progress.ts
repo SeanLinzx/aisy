@@ -1,8 +1,12 @@
 /** 老师可在课堂控制台实时查看进度的创作类小游戏 */
 export const TRACKED_CREATION_GAMES = [
+  'clue-card-detective',
+  'spot-diff',
   'keyword-image',
+  'free-image',
   'decorate-room',
   'frame-video',
+  'video-studio',
   'video-guided',
   'video-free',
   'picture-book',
@@ -12,8 +16,8 @@ export const TRACKED_CREATION_GAMES = [
 
 export type TrackedCreationGame = (typeof TRACKED_CREATION_GAMES)[number];
 
-/** 第 4 课 · AI 生视频：所有会产出视频的上报来源 */
-export const VIDEO_CREATION_GAMES = ['frame-video', 'video-guided', 'video-free'] as const;
+/** 第 4 课 · AI 生视频：会产出视频的上报来源 */
+export const VIDEO_CREATION_GAMES = ['frame-video', 'video-studio', 'video-free'] as const;
 
 export type VideoCreationGame = (typeof VIDEO_CREATION_GAMES)[number];
 
@@ -24,6 +28,19 @@ export interface GameProgressItem {
   prompt?: string;
   label?: string;
   status?: string;
+}
+
+/** decorate-room 各角色房间的独立进度快照 */
+export interface DecorateRoomThemeProgress {
+  themeId: string;
+  status: GameProgressStatus;
+  prompt?: string;
+  imageUrls?: string[];
+  thumbnailUrl?: string;
+  items?: GameProgressItem[];
+  roundCount?: number;
+  summary?: string;
+  error?: string;
 }
 
 export interface GameProgressRecord {
@@ -41,6 +58,10 @@ export interface GameProgressRecord {
   roundCount?: number;
   summary?: string;
   error?: string;
+  /** decorate-room：学生当前活跃的角色房间 */
+  themeId?: string;
+  /** decorate-room：三个角色房间各自的进度 */
+  themes?: Record<string, DecorateRoomThemeProgress>;
   updatedAt: number;
 }
 
@@ -66,6 +87,29 @@ export interface GameProgressReportPayload {
   roundCount?: number;
   summary?: string;
   error?: string;
+  themeId?: string;
+  themes?: Record<string, DecorateRoomThemeProgress>;
+}
+
+/** 从 decorate-room 记录中取出指定角色房间的展示用进度 */
+export function resolveDecorateRoomThemeRecord(
+  record: GameProgressRecord,
+  themeId: string,
+): GameProgressRecord {
+  const theme = record.themes?.[themeId];
+  if (!theme) return record;
+  return {
+    ...record,
+    status: theme.status,
+    prompt: theme.prompt,
+    imageUrls: theme.imageUrls,
+    thumbnailUrl: theme.thumbnailUrl,
+    items: theme.items,
+    roundCount: theme.roundCount,
+    summary: theme.summary,
+    error: theme.error,
+    themeId,
+  };
 }
 
 export function isTrackedCreationGame(slug: string | null | undefined): slug is TrackedCreationGame {
@@ -98,9 +142,13 @@ export function gameProgressRecordKey(studentId: string, gameSlug: string) {
 }
 
 export const GAME_PROGRESS_LABELS: Record<TrackedCreationGame, string> = {
+  'clue-card-detective': 'AI 线索卡大侦探',
+  'spot-diff': 'AI 图片找不同',
   'keyword-image': '关键词生图',
+  'free-image': '自由生图',
   'decorate-room': '奶龙装修房间',
-  'frame-video': '首尾帧生视频',
+  'frame-video': '关键帧生视频',
+  'video-studio': '自由生视频',
   'video-guided': '模板生视频',
   'video-free': '自由生视频',
   'picture-book': '绘本生成',

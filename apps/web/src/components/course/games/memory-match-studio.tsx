@@ -4,13 +4,12 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
-import { HtmlPreview } from '@/components/course/html-preview';
-import { AiProgress } from '@/components/course/ai-progress';
+import { type PickedElement, describePickedElements } from '@/components/course/html-preview';
+import { WebStudioPanel } from '@/components/course/web-studio-panel';
 import {
   MEMORY_MATCH_TITLE,
   buildMemoryMatchIterationPrompt,
-  loadMemoryMatchState,
+  ensureMemoryMatchStarter,
   mergeWebHtml,
   persistMemoryMatch,
   type MemoryMatchForm,
@@ -20,6 +19,8 @@ export function MemoryMatchStudio() {
   const [form, setForm] = useState<MemoryMatchForm | null>(null);
   const [html, setHtml] = useState('');
   const [instruction, setInstruction] = useState('');
+  const [pickedBlocks, setPickedBlocks] = useState<PickedElement[]>([]);
+  const [resetSignal, setResetSignal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [assetId, setAssetId] = useState<string | null>(null);
@@ -28,10 +29,9 @@ export function MemoryMatchStudio() {
   const [justSaved, setJustSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [previewKey, setPreviewKey] = useState(0);
 
   useEffect(() => {
-    loadMemoryMatchState()
+    ensureMemoryMatchStarter()
       .then((state) => {
         setForm(state.form);
         setHtml(state.html);
@@ -45,11 +45,18 @@ export function MemoryMatchStudio() {
             .catch(() => setVersionCount(1));
         }
       })
-      .catch(() => setError('加载失败，请返回重新生成。'))
+      .catch(() => setError('加载失败，请返回课程页重试。'))
       .finally(() => setLoading(false));
   }, []);
 
   const pageUrl = slug ? `/p/${slug}` : null;
+
+  function addBlock(el: PickedElement) {
+    setPickedBlocks((prev) => (prev.some((b) => b.outerHtml === el.outerHtml) ? prev : [...prev, el]));
+  }
+  function removeBlock(index: number) {
+    setPickedBlocks((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function applyEdit() {
     if (!instruction.trim() || !html || !form) return;
@@ -57,12 +64,13 @@ export function MemoryMatchStudio() {
     setError(null);
     setJustSaved(false);
     try {
-      const prompt = buildMemoryMatchIterationPrompt(html, instruction);
+      const prompt = buildMemoryMatchIterationPrompt(html, instruction, describePickedElements(pickedBlocks));
       const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: 180_000 });
       const merged = mergeWebHtml(r.data);
       setHtml(merged);
       setInstruction('');
-      setPreviewKey((k) => k + 1);
+      setPickedBlocks([]);
+      setResetSignal((k) => k + 1);
 
       const result = await persistMemoryMatch({
         htmlContent: merged,
@@ -89,7 +97,7 @@ export function MemoryMatchStudio() {
   if (!html || !form) {
     return (
       <div className="kid-card space-y-3">
-        <p className="text-sm text-ink-soft">还没有生成{MEMORY_MATCH_TITLE}，请先返回填写选择题。</p>
+        <p className="text-sm text-ink-soft">还没有加载到{MEMORY_MATCH_TITLE}，请返回课程页。</p>
         <Link href="/student/course/g/memory-match" className="kid-button-primary inline-block !py-2 !px-4 text-sm">
           ← 返回{MEMORY_MATCH_TITLE}
         </Link>
@@ -101,7 +109,10 @@ export function MemoryMatchStudio() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         <Link href="/student/course/g/memory-match" className="kid-button-ghost !py-2 !px-4 text-sm">
-          ← 返回选择题
+          ← 返回记忆力挑战
+        </Link>
+        <Link href="/student/course/g/memory-match-create" className="kid-button-ghost !py-2 !px-4 text-sm">
+          🎨 用选择题重新设计
         </Link>
         {pageUrl && (
           <Link href={pageUrl} target="_blank" className="kid-button-primary !py-2 !px-4 text-sm">
@@ -115,38 +126,25 @@ export function MemoryMatchStudio() {
         <div className="kid-card-mint text-sm text-emerald-800 font-bold">✅ 修改已生效，并自动保存了一个新版本！</div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_320px] gap-4 items-start">
-        <div className="kid-card space-y-2">
-          <div className="text-sm font-bold">🕵️ {MEMORY_MATCH_TITLE} · 实时预览</div>
-          <HtmlPreview key={previewKey} html={html} height={640} interactive />
-          <p className="text-xs text-center text-ink-soft">↑ 可以直接玩：闯关翻牌、看侦探记忆力排行榜</p>
-        </div>
-
-        <div className="kid-card-purple space-y-3 lg:sticky lg:top-4">
-          <div className="text-sm font-bold">✏️ 输入修改内容</div>
-          <p className="text-xs text-ink-soft leading-relaxed">
-            在下面写清楚想怎么改（比如「卡背换成放大镜图案」「配对成功时加一段掌声音效」），AI 会直接改这个页面，改完自动保存新版本。
-          </p>
-          <div className="flex items-center justify-between gap-2">
-            <label className="text-xs font-bold text-ink-soft">🎤 语音输入</label>
-            <VoiceInputButton onResult={(t) => setInstruction((p) => (p ? `${p} ` : '') + t)} />
-          </div>
-          <textarea
-            className="kid-textarea !min-h-[120px]"
-            value={instruction}
-            onChange={(e) => setInstruction(e.target.value)}
-            placeholder="例如：卡背换成放大镜图案，配色改成青绿色黑板风"
-          />
-          <button onClick={applyEdit} disabled={busy || !instruction.trim()} className="kid-button-primary w-full">
-            {busy ? '✨ AI 正在修改并保存…' : '✨ 应用修改'}
-          </button>
-          {busy && <AiProgress label="AI 正在按你的要求修改游戏…" />}
-          {error && (
-            <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
-          )}
-          <AiWarning extra="每次修改都会自动保存一个新版本，可以放心多试几次。" />
-        </div>
-      </div>
+      <WebStudioPanel
+        html={html}
+        previewHeight={640}
+        panelTitle={`🕵️ ${MEMORY_MATCH_TITLE} · 实时预览`}
+        instruction={instruction}
+        onInstructionChange={setInstruction}
+        pickedBlocks={pickedBlocks}
+        onAddBlock={addBlock}
+        onRemoveBlock={removeBlock}
+        onClearBlocks={() => setPickedBlocks([])}
+        onApply={applyEdit}
+        busy={busy}
+        error={error}
+        resetSignal={resetSignal}
+        placeholder="例如：卡背换成放大镜图案，配色改成青绿色黑板风"
+        busyLabel="✨ AI 正在修改并保存…"
+        applyLabel="✨ 应用修改"
+        extra={<AiWarning extra="每次修改都会自动保存一个新版本，可以放心多试几次。" />}
+      />
     </div>
   );
 }

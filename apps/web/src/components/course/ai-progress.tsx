@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const TIPS = [
   'AI 正在开动它的大脑…',
@@ -10,35 +10,39 @@ const TIPS = [
 ];
 
 /**
- * AI 等待进度条。AI 生成本身没有真实进度回传，这里用「平滑逼近」的方式
- * 让进度条一直往前走（接近 95% 后放慢），缓解等待焦虑。
+ * AI 等待进度条。AI 生成本身没有真实进度回传，这里按「预计耗时」用平滑曲线
+ * 逼近 96%（越接近预计耗时增长越慢，超过预计耗时后仍会缓慢爬升），缓解等待焦虑。
  * 父组件在加载时渲染它、加载结束时卸载即可。
  */
 export function AiProgress({
   label = 'AI 正在生成…',
   estimate,
+  durationMs = 15_000,
   className = '',
 }: {
   label?: string;
-  /** 例如「平均每段约 3 分钟」 */
+  /** 例如「平均每段约 3 分钟」，会在进度条旁展示 */
   estimate?: string;
+  /** 预计整个生成大概需要多久（毫秒），进度条会按这个节奏走，而不是冲得很快 */
+  durationMs?: number;
   className?: string;
 }) {
-  const [p, setP] = useState(6);
+  const [p, setP] = useState(4);
   const [tip, setTip] = useState(0);
+  const startRef = useRef(0);
 
   useEffect(() => {
+    startRef.current = Date.now();
+    // 到预计耗时时大约走到 90%，之后仍会非常缓慢地继续爬升，不会卡死不动
+    const tau = durationMs / 2.4;
     const id = setInterval(() => {
-      setP((prev) => {
-        const remaining = 96 - prev;
-        if (remaining <= 0.4) return prev;
-        const inc = Math.max(0.3, remaining * 0.05);
-        return Math.min(96, prev + inc);
-      });
-    }, 280);
+      const elapsed = Date.now() - startRef.current;
+      const target = 96 * (1 - Math.exp(-elapsed / tau));
+      setP((prev) => Math.max(prev, Math.min(96, target)));
+    }, 250);
     const tipId = setInterval(() => setTip((t) => (t + 1) % TIPS.length), 2600);
     return () => { clearInterval(id); clearInterval(tipId); };
-  }, []);
+  }, [durationMs]);
 
   return (
     <div className={`rounded-2xl border-2 border-orange-100 bg-white/80 p-3 ${className}`}>

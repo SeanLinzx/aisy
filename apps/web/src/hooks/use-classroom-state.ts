@@ -51,17 +51,17 @@ export function useClassroomState(meId: string) {
     : '/student/course/live';
 
   const isSlides = state?.mode === 'slides' && !!state.slides?.url;
-  const isShowcase = state?.mode === 'showcase' && !!state.showcase;
+  const isShowcase = !!state?.showcase;
 
-  const label = isShowcase
-    ? `🌟 欣赏 ${state?.showcase?.displayName} 的作品`
-    : isSlides
-      ? isDeckSlides(state?.slides)
-        ? `互动课件 · 第 ${state?.slides?.page ?? 1} 页`
-        : `课件 · 第 ${state?.slides?.page ?? 1} 页`
-      : state?.currentGame
-        ? findGame(state.currentGame)?.game.title ?? '小游戏'
-        : '等待老师';
+  const label = isSlides
+    ? isDeckSlides(state?.slides)
+      ? `互动课件 · 第 ${state?.slides?.page ?? 1} 页`
+      : `课件 · 第 ${state?.slides?.page ?? 1} 页`
+    : state?.currentGame
+      ? findGame(state.currentGame)?.game.title ?? '小游戏'
+      : '等待老师';
+
+  const showcaseLabel = isShowcase ? `🌟 ${state?.showcase?.displayName} 的作品` : null;
 
   const isAway = locked && !isClassroomPathAllowed(pathname, target);
 
@@ -84,5 +84,5 @@ export function useClassroomState(meId: string) {
     router.replace(target);
   }
 
-  return { included, locked, state, target, label, isAway, returnToClass };
+  return { included, locked, state, target, label, showcaseLabel, isShowcase, showcase: state?.showcase ?? null, isAway, returnToClass };
 }

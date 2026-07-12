@@ -1,19 +1,17 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
-import { HtmlPreview, type PickedElement } from '@/components/course/html-preview';
-import { AiProgress } from '@/components/course/ai-progress';
+import { type PickedElement, describePickedElements } from '@/components/course/html-preview';
+import { WebStudioPanel } from '@/components/course/web-studio-panel';
 import {
   buildIterationPrompt,
   friendlyApiError,
   loadPortfolioState,
   mergeHtml,
   persistPortfolio,
-  type IterationTarget,
   type PortfolioForm,
   type PortfolioAsset,
 } from './portfolio-shared';
@@ -22,9 +20,9 @@ export function PortfolioStudio() {
   const [form, setForm] = useState<PortfolioForm | null>(null);
   const [chosen, setChosen] = useState<PortfolioAsset[]>([]);
   const [html, setHtml] = useState('');
-  const [iterateInstruction, setIterateInstruction] = useState('');
-  const [iterTarget, setIterTarget] = useState<IterationTarget | null>(null);
-  const [previewKey, setPreviewKey] = useState(0);
+  const [instruction, setInstruction] = useState('');
+  const [pickedBlocks, setPickedBlocks] = useState<PickedElement[]>([]);
+  const [resetSignal, setResetSignal] = useState(0);
   const [busy, setBusy] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [assetId, setAssetId] = useState<string | null>(null);
@@ -32,8 +30,6 @@ export function PortfolioStudio() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  /** play = 正常体验交互；pick = 点选元素给 AI 迭代 */
-  const [previewMode, setPreviewMode] = useState<'play' | 'pick'>('play');
   const scriptRepairRef = useRef(false);
 
   useEffect(() => {
@@ -69,30 +65,26 @@ export function PortfolioStudio() {
 
   const pageUrl = publishedSlug ? `/p/${publishedSlug}` : null;
 
-  const handleElementPick = useCallback((element: PickedElement) => {
-    setIterTarget({ kind: 'element', element });
-  }, []);
-
-  const iterTargetLabel = useMemo(() => {
-    if (iterTarget?.kind === 'page') return '整页';
-    if (iterTarget?.kind === 'element') return iterTarget.element.hint;
-    return null;
-  }, [iterTarget]);
+  function addBlock(el: PickedElement) {
+    setPickedBlocks((prev) => (prev.some((b) => b.outerHtml === el.outerHtml) ? prev : [...prev, el]));
+  }
+  function removeBlock(index: number) {
+    setPickedBlocks((prev) => prev.filter((_, i) => i !== index));
+  }
 
   async function applyIteration() {
-    if (!iterateInstruction.trim() || !html || !iterTarget || !form) return;
+    if (!instruction.trim() || !html || !form) return;
     setBusy(true);
     setError(null);
     setSaved(false);
     try {
-      const prompt = buildIterationPrompt(html, iterTarget, iterateInstruction);
+      const prompt = buildIterationPrompt(html, instruction, describePickedElements(pickedBlocks));
       const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: 180_000 });
       const merged = mergeHtml(r.data);
       setHtml(merged);
-      setIterateInstruction('');
-      setIterTarget(null);
-      setPreviewMode('play');
-      setPreviewKey((k) => k + 1);
+      setInstruction('');
+      setPickedBlocks([]);
+      setResetSignal((k) => k + 1);
 
       const result = await persistPortfolio({
         htmlContent: merged,
@@ -158,111 +150,24 @@ export function PortfolioStudio() {
         </div>
       )}
 
-      <div className="kid-card-purple space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-bold">🔄 预览与迭代微调</div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setPreviewMode('play');
-                setIterTarget(null);
-                setPreviewKey((k) => k + 1);
-              }}
-              className={`kid-button-sm border-2 ${previewMode === 'play' ? 'bg-emerald-500 text-white border-emerald-500' : 'bg-white text-ink-soft border-emerald-200'}`}
-            >
-              👆 体验交互
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPreviewMode('pick');
-                setPreviewKey((k) => k + 1);
-              }}
-              className={`kid-button-sm border-2 ${previewMode === 'pick' ? 'bg-violet-500 text-white border-violet-500' : 'bg-white text-ink-soft border-violet-200'}`}
-            >
-              🎯 点选修改
-            </button>
-          </div>
-        </div>
-        <p className="text-xs text-ink-soft leading-relaxed">
-          {previewMode === 'play'
-            ? <>默认是<b>体验模式</b>，可以像真实网页一样点击按钮、卡片和弹窗。想告诉 AI 改哪里时，再切换到「点选修改」。</>
-            : <>点选模式下，<b>点击</b>你想改的地方（标题、卡片、背景等），或点「选中整页」，然后用语音/文字告诉 AI 怎么改。</>}
-        </p>
-
-        {previewMode === 'pick' && (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setIterTarget({ kind: 'page' })}
-              className={`kid-button-sm border-2 ${iterTarget?.kind === 'page' ? 'bg-violet-500 text-white border-violet-500' : 'bg-white text-ink-soft border-violet-200'}`}
-            >
-              🌐 选中整页
-            </button>
-            {iterTargetLabel && (
-              <span className="text-xs font-bold text-violet-700 bg-violet-50 border-2 border-violet-100 rounded-full px-3 py-1.5 self-center">
-                已选中：{iterTargetLabel}
-              </span>
-            )}
-            {iterTarget && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIterTarget(null);
-                  setPreviewKey((k) => k + 1);
-                }}
-                className="kid-button-sm bg-white text-ink-soft border-2 border-orange-200"
-              >
-                取消选中
-              </button>
-            )}
-          </div>
-        )}
-
-        <HtmlPreview
-          key={`${previewKey}-${previewMode}`}
-          html={html}
-          height={640}
-          interactive
-          pickMode={previewMode === 'pick'}
-          onPick={previewMode === 'pick' ? handleElementPick : undefined}
-        />
-        <p className="text-xs text-center font-semibold text-ink-soft">
-          {previewMode === 'play' ? '↑ 现在可以正常点击页面里的按钮和卡片' : '↑ 鼠标移上去会高亮，点一下即可选中要改的部分'}
-        </p>
-
-        <div className="rounded-xl bg-white border-2 border-violet-100 p-3 space-y-3">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <label className="text-sm font-bold">🎤 告诉 AI 要怎么改</label>
-            <VoiceInputButton onResult={(t) => setIterateInstruction((p) => (p ? p + ' ' : '') + t)} />
-          </div>
-          <textarea
-            className="kid-textarea !min-h-[72px]"
-            value={iterateInstruction}
-            onChange={(e) => setIterateInstruction(e.target.value)}
-            placeholder={
-              iterTarget?.kind === 'element'
-                ? `例如：把这个${iterTarget.element.tag}的颜色改成蓝色，字再大一点`
-                : iterTarget?.kind === 'page'
-                  ? '例如：背景换成星空，标题改成「小明的奇妙 AI 世界」'
-                  : '先点选要改的部分，或选中整页'
-            }
-          />
-          <button
-            onClick={applyIteration}
-            disabled={busy || !iterateInstruction.trim() || !iterTarget}
-            className="kid-button-primary w-full"
-          >
-            {busy ? '✨ AI 正在迭代并保存…' : '✨ 应用迭代（自动更新预览与素材库）'}
-          </button>
-        </div>
-        {busy && <AiProgress label="AI 正在按你的要求迭代修改…" />}
-        {error && (
-          <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
-        )}
-        <AiWarning extra="迭代后会自动保存到「我的网页」和素材库。可以多次点选不同部分，反复微调。" />
-      </div>
+      <WebStudioPanel
+        html={html}
+        previewHeight={640}
+        instruction={instruction}
+        onInstructionChange={setInstruction}
+        pickedBlocks={pickedBlocks}
+        onAddBlock={addBlock}
+        onRemoveBlock={removeBlock}
+        onClearBlocks={() => setPickedBlocks([])}
+        onApply={applyIteration}
+        busy={busy}
+        error={error}
+        resetSignal={resetSignal}
+        placeholder="例如：把封面标题改成「小明的奇妙 AI 世界」，背景换成星空"
+        busyLabel="✨ AI 正在迭代并保存…"
+        applyLabel="✨ 应用修改（自动更新预览与素材库）"
+        extra={<AiWarning extra="迭代后会自动保存到「我的网页」和素材库。可以多次点选不同部分，反复微调。" />}
+      />
     </div>
   );
 }

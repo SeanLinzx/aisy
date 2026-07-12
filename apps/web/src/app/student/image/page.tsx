@@ -4,9 +4,13 @@ import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { PromptTemplates } from '@/components/prompt-templates';
-import { PromptKeywordPicker, emptySelection, type KeywordSelection } from '@/components/prompt-keyword-picker';
+import {
+  PromptKeywordPicker,
+  KeywordPromptPreview,
+  emptySelection,
+  type KeywordSelection,
+} from '@/components/prompt-keyword-picker';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
 import { FreeCreateFlow } from '@/components/creative/free-create-flow';
@@ -32,6 +36,7 @@ function ImagePageContent() {
   const [loading, setLoading] = useState(false);
   const [urls, setUrls] = useState<string[]>([]);
   const [savedToLibrary, setSavedToLibrary] = useState(false);
+  const [savingImageIdx, setSavingImageIdx] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,14 +68,32 @@ function ImagePageContent() {
     }
   }
 
+  async function saveImageToLibrary(url: string, index: number) {
+    setSavingImageIdx(index);
+    setError(null);
+    try {
+      await api.post('/assets', {
+        type: 'image',
+        title: prompt.slice(0, 24) || `AI图片-${index + 1}`,
+        url,
+        meta: { source: 'image-guided', manualSaved: true },
+      });
+      setSavedToLibrary(true);
+    } catch (e: unknown) {
+      setError((e as Error).message || '保存失败');
+    } finally {
+      setSavingImageIdx(null);
+    }
+  }
+
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <ExploreToolHeader
         title="🎨 AI 画图"
         desc={
           fromCourse
-            ? '课程第 2 课配套工具：关键词生图，或自由生图（AI 先优化提示词）。'
-            : '关键词快速生图，或使用「自由生图」——先让 AI 帮你优化提示词，再生成作品并保存完整创作记录。'
+            ? '课程第 2 课配套工具：关键词生图，或自由生图（描述后直接生成）。'
+            : '关键词快速生图，或使用「自由生图」——描述想法后直接生成作品并保存创作记录。'
         }
         backHref={backHref}
         backLabel={backLabel}
@@ -98,84 +121,90 @@ function ImagePageContent() {
       </div>
 
       {mode === 'free' ? (
-        <FreeCreateFlow kind="image" />
+        <FreeCreateFlow kind="image" fromCourse={fromCourse} lessonSlug={lessonSlug} />
       ) : (
         <>
-          <div className="kid-card space-y-4">
-            <PromptTemplates category="image" onPick={(t) => setPrompt(t.prompt)} />
-            <PromptKeywordPicker
-              selection={keywords}
-              onChange={(sel, built) => {
-                setKeywords(sel);
-                setPrompt(built);
-              }}
-            />
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-semibold">提示词 Prompt</label>
-                <VoiceInputButton onResult={(t) => setPrompt((p) => (p ? `${p}\n${t}` : t))} />
-              </div>
-              <textarea
-                className="kid-textarea"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="例如：一只在彩虹上跳舞的小猫，水彩风格"
+          <div className="grid lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px] gap-4 items-start">
+            <div className="kid-card space-y-4">
+              <PromptTemplates category="image" onPick={(t) => setPrompt(t.prompt)} />
+              <PromptKeywordPicker
+                selection={keywords}
+                showInlinePreview={false}
+                onChange={(sel, built) => {
+                  setKeywords(sel);
+                  setPrompt(built);
+                }}
               />
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-semibold">尺寸</label>
-                <select className="kid-input mt-2" value={size} onChange={(e) => setSize(e.target.value)}>
-                  <option value="1K">1K 标清（更快，推荐）</option>
-                  <option value="2K">2K 高清</option>
-                </select>
+                <label className="text-sm font-semibold">提示词 Prompt</label>
+                <textarea
+                  className="kid-textarea"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="例如：一只在彩虹上跳舞的小猫，水彩风格"
+                />
               </div>
-              <div>
-                <label className="text-sm font-semibold">张数</label>
-                <select className="kid-input mt-2" value={n} onChange={(e) => setN(Number(e.target.value))}>
-                  <option value={1}>1 张</option>
-                  <option value={2}>2 张</option>
-                  <option value={4}>4 张</option>
-                </select>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-semibold">尺寸</label>
+                  <select className="kid-input mt-2" value={size} onChange={(e) => setSize(e.target.value)}>
+                    <option value="1K">1K 标清（更快，推荐）</option>
+                    <option value="2K">2K 高清</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-semibold">张数</label>
+                  <select className="kid-input mt-2" value={n} onChange={(e) => setN(Number(e.target.value))}>
+                    <option value={1}>1 张</option>
+                    <option value={2}>2 张</option>
+                    <option value={4}>4 张</option>
+                  </select>
+                </div>
               </div>
-            </div>
-            <ReferenceImageField value={refImage} onChange={setRefImage} />
-            <button onClick={gen} disabled={loading} className="kid-button-primary">
-              {loading ? '生成中…' : '让 AI 画一张'}
-            </button>
-            {loading && <AiProgress label="AI 正在画图…" />}
-            {error && (
-              <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                {error}
-              </div>
-            )}
-          </div>
-
-          {(urls.length > 0 || loading) && (
-            <div className="kid-card">
-              <h3 className="font-semibold mb-3">作品</h3>
-              {loading && <div className="text-slate-500 text-sm">⏳ 画师正在画…</div>}
-              <div className="grid sm:grid-cols-2 gap-4">
-                {urls.map((u, i) => (
-                  <div key={u}>
-                    <img src={resolveUploadPath(u)} alt="ai" className="w-full rounded-2xl border border-orange-100" />
-                    <ImageResultActions
-                      url={u}
-                      title={`AI图片-${i + 1}`}
-                      savedToLibrary={savedToLibrary}
-                      fromCourse={fromCourse}
-                      lessonSlug={lessonSlug}
-                    />
-                  </div>
-                ))}
-              </div>
-              {urls.length > 0 && (
-                <div className="mt-4">
-                  <AiWarning />
+              <ReferenceImageField value={refImage} onChange={setRefImage} />
+              <button onClick={gen} disabled={loading} className="kid-button-primary">
+                {loading ? '生成中…' : '让 AI 画一张'}
+              </button>
+              {loading && <AiProgress label="AI 正在画图…" />}
+              {error && (
+                <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {error}
                 </div>
               )}
             </div>
-          )}
+
+            <div className="space-y-4 lg:sticky lg:top-4">
+              <KeywordPromptPreview selection={keywords} prompt={prompt} />
+
+              {(urls.length > 0 || loading) && (
+                <div className="kid-card">
+                  <h3 className="font-semibold mb-3">作品</h3>
+                  {loading && <div className="text-slate-500 text-sm">⏳ 画师正在画…</div>}
+                  <div className="grid gap-3">
+                    {urls.map((u, i) => (
+                      <div key={u}>
+                        <img src={resolveUploadPath(u)} alt="ai" className="w-full rounded-2xl border border-orange-100" />
+                        <ImageResultActions
+                          url={u}
+                          title={`AI图片-${i + 1}`}
+                          savedToLibrary={savedToLibrary}
+                          fromCourse={fromCourse}
+                          lessonSlug={lessonSlug}
+                          saving={savingImageIdx === i}
+                          onSave={savedToLibrary ? undefined : () => void saveImageToLibrary(u, i)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  {urls.length > 0 && (
+                    <div className="mt-4">
+                      <AiWarning />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>

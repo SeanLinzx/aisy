@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { AiProgress } from '@/components/course/ai-progress';
 import {
   clipTuringAnswer,
@@ -138,7 +137,7 @@ export default function TeacherTuringPage() {
   }
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <header>
         <h1 className="font-display text-2xl font-extrabold flex items-center gap-2">🤖 图灵测试 · 现场出题</h1>
         <p className="text-slate-600 mt-1 text-sm">
@@ -224,14 +223,7 @@ export default function TeacherTuringPage() {
                   { key: 'human2' as const, label: '👧 小朋友 2', n: 2 },
                 ]).map(({ key, label, n }) => (
                   <div key={key}>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-sm font-bold">{label}（≤{TURING_MAX_ANSWER_LEN}字）</label>
-                      <VoiceInputButton
-                        onResult={(t) =>
-                          updateSlot(slot.id, { [key]: clipTuringAnswer((slot[key] ? slot[key] + ' ' : '') + t) })
-                        }
-                      />
-                    </div>
+                    <label className="text-sm font-bold">{label}（≤{TURING_MAX_ANSWER_LEN}字）</label>
                     <textarea
                       className="kid-textarea !min-h-[56px]"
                       maxLength={TURING_MAX_ANSWER_LEN}

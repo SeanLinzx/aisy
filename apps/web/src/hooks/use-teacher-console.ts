@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { GameProgressSession } from '@/lib/course-game-progress';
 import type { SummarySession } from '@/lib/detective-summary';
+import type { VideoRecognitionSession } from '@/lib/video-recognition';
 import type { ClassroomShowcase } from '@/lib/classroom-showcase';
 
 export interface ConsoleClassroomState {
@@ -23,6 +24,7 @@ export interface ConsoleState {
   groupGrab: any | null;
   gameProgress: GameProgressSession | null;
   summary: SummarySession | null;
+  videoRecognition: VideoRecognitionSession | null;
   now: number;
 }
 
@@ -38,8 +40,10 @@ export function useTeacherConsole(games: string[], intervalMs = 3000) {
 
   useEffect(() => {
     let alive = true;
+    let timer: ReturnType<typeof setInterval> | null = null;
+
     async function load() {
-      if (inflight.current) return; // 网络慢时不要堆积请求
+      if (inflight.current || document.hidden) return;
       inflight.current = true;
       try {
         const r = await api.get('/course/console', {
@@ -55,11 +59,30 @@ export function useTeacherConsole(games: string[], intervalMs = 3000) {
         inflight.current = false;
       }
     }
-    load();
-    const t = setInterval(load, intervalMs);
+
+    function startPolling() {
+      if (timer) clearInterval(timer);
+      load();
+      timer = setInterval(load, intervalMs);
+    }
+
+    function onVisibility() {
+      if (document.hidden) {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      } else {
+        startPolling();
+      }
+    }
+
+    startPolling();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       alive = false;
-      clearInterval(t);
+      if (timer) clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [gamesKey, intervalMs]);
 

@@ -27,7 +27,7 @@ export function buildCreationSessionHtml(p: CreationSessionPayload): string {
       : '';
 
   const video = p.videoUrl
-    ? `<div class="video-wrap"><video controls playsinline src="${esc(p.videoUrl)}"></video></div>`
+    ? `<div class="video-wrap"><video controls playsinline preload="metadata"><source src="${esc(p.videoUrl)}" type="video/mp4"/></video></div>`
     : '';
 
   const badge = p.kind === 'image' ? '🎨 自由生图' : '🎬 自由生视频';

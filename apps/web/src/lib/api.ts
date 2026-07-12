@@ -2,6 +2,13 @@ import axios, { AxiosError } from 'axios';
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE || '/api';
 
+/** 带 basePath 的 API 下载链接（素材库、海报/PPT 导出等原生 <a> 下载） */
+export function apiDownloadHref(path: string): string {
+  const base = apiBase.replace(/\/$/, '');
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${normalized}`;
+}
+
 export const api = axios.create({
   baseURL: apiBase,
   withCredentials: true,

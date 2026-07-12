@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { VoiceInputButton } from '@/components/voice-input';
 import { reportGrowth } from '@/lib/growth-report';
 import {
   SUMMARY_QUESTIONS,
@@ -66,10 +65,7 @@ function QuestionCard({
 
       {question.withText && (
         <div>
-          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
-            <label className="text-xs font-bold">{question.textLabel}</label>
-            <VoiceInputButton onResult={(t) => onText((answer?.text ? `${answer.text} ` : '') + t)} />
-          </div>
+          <label className="text-xs font-bold">{question.textLabel}</label>
           <textarea
             className="kid-textarea !min-h-[72px] text-sm"
             value={answer?.text || ''}

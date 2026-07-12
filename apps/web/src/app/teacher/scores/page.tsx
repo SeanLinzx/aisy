@@ -18,7 +18,7 @@ export default function TeacherScoresPage() {
   }, []);
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <header>
         <h1 className="font-display text-2xl font-extrabold flex items-center gap-2">🏆 小组积分板</h1>
         <p className="text-slate-600 mt-1 text-sm">

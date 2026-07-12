@@ -24,7 +24,7 @@ export default function SettingsPage() {
 
   if (!me) return <div className="text-slate-500">加载中…</div>;
   return (
-    <div className="space-y-5 max-w-2xl">
+    <div className="space-y-5 page-container--narrow">
       <h1 className="text-2xl font-bold text-brand-dark">⚙️ 我的设置</h1>
       <div className="kid-card space-y-3">
         <div className="text-sm text-slate-500">用户名：{me.username}</div>
@@ -58,7 +58,6 @@ export default function SettingsPage() {
       <div className="kid-card">
         <h3 className="font-semibold mb-2">🔗 快捷入口</h3>
         <div className="flex flex-wrap gap-3 text-sm">
-          <Link href="/student/homepage" className="text-brand font-bold">🌟 我的主页</Link>
           <Link href="/student/assets" className="text-brand font-bold">📦 素材库</Link>
           <Link href="/student/projects" className="text-brand font-bold">💻 我的网页</Link>
           <Link href="/student/explore" className="text-brand font-bold">🎧 探索模式</Link>

@@ -99,6 +99,17 @@ const config: Config = {
           '0%, 100%': { opacity: '0.4', transform: 'scale(0.9)' },
           '50%': { opacity: '1', transform: 'scale(1.1)' },
         },
+        scoreFloat: {
+          '0%': { opacity: '0', transform: 'translate(-50%, 8px) scale(0.8)' },
+          '20%': { opacity: '1', transform: 'translate(-50%, 0) scale(1.1)' },
+          '100%': { opacity: '0', transform: 'translate(-50%, -28px) scale(1)' },
+        },
+        scoreBounce: {
+          '0%, 100%': { transform: 'scale(1)' },
+          '25%': { transform: 'scale(1.12) rotate(-3deg)' },
+          '50%': { transform: 'scale(1.08) rotate(3deg)' },
+          '75%': { transform: 'scale(1.1)' },
+        },
       },
       animation: {
         wiggle: 'wiggle 1.6s ease-in-out infinite',
@@ -108,6 +119,8 @@ const config: Config = {
         bounceSoft: 'bounceSoft 2s ease-in-out infinite',
         rainbow: 'rainbow 6s ease infinite',
         sparkle: 'sparkle 2.4s ease-in-out infinite',
+        'score-float': 'scoreFloat 1.8s ease-out forwards',
+        'score-bounce': 'scoreBounce 0.6s ease-in-out 3',
       },
     },
   },

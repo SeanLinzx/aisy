@@ -1,14 +1,13 @@
-/** 上课跟课期间，学生只允许停留在老师指定的页面 */
+/** 上课跟课期间，学生只允许停留在老师指定的页面（作品展示以浮窗呈现，不单独跳转） */
 export function classroomTargetPath(state: {
   mode: 'game' | 'slides' | 'showcase';
   currentGame: string | null;
   slides: { url: string } | null;
   showcase?: { displayName: string } | null;
 }): string {
-  if (state.mode === 'showcase' && state.showcase) return '/student/course/showcase';
   const isSlides = state.mode === 'slides' && !!state.slides?.url;
-  if (isSlides) return '/student/course/live';
   if (state.currentGame) return `/student/course/g/${state.currentGame}`;
+  if (isSlides) return '/student/course/live';
   return '/student/course/live';
 }
 

@@ -37,6 +37,13 @@ class VideoDto extends MixedDto {
   @IsOptional() @IsIn(['guided', 'free']) mode?: 'guided' | 'free';
 }
 
+class ConcatVideoDto {
+  @IsArray() @IsString({ each: true }) videoUrls!: string[];
+  @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) segmentJobIds?: string[];
+  @IsOptional() @IsString() courseGame?: string;
+}
+
 class MusicDto {
   @IsString() lyrics!: string;
   @IsOptional() @IsString() genre?: string;
@@ -116,6 +123,11 @@ export class AiGenerateController {
   @Post('video')
   video(@Body() dto: VideoDto, @CurrentUser() me: AuthUser) {
     return this.svc.submitVideo(me.id, dto);
+  }
+
+  @Post('video/concat')
+  concatVideo(@Body() dto: ConcatVideoDto, @CurrentUser() me: AuthUser) {
+    return this.svc.concatVideos(me.id, dto);
   }
 
   @Post('music')

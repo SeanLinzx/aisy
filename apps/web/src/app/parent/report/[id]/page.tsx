@@ -33,7 +33,7 @@ export default function ReportPage() {
   if (!data) return <div className="text-slate-500">加载中…</div>;
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <h1 className="text-2xl font-bold text-brand-dark">📈 成长报告</h1>
       <div className="grid sm:grid-cols-3 gap-3">
         <Stat label="作品总数" value={data.assets} emoji="🖼️" />

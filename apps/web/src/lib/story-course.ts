@@ -44,12 +44,16 @@ export function buildStoryPrompt(scenes: StorySceneForm[], title?: string): stri
     })
     .join('\n\n');
 
+  const sceneCount = scenes.filter(
+    (s) => s.time || s.place || s.characters || s.opening || s.climax || s.ending,
+  ).length;
+
   return `你是一位擅长写儿童绘本的作家。请根据下面每个场景卡片的信息，写一篇完整、流畅、适合 8-12 岁小学生阅读的童话故事。
 
 要求：
 1. 把每个场景自然串联起来，有清晰的开头、发展、高潮和结局；
 2. 语言生动、有画面感，对话适量；
-3. 字数约 400-700 字；
+3. 每个场景展开描写约 100 字左右（共 ${sceneCount} 个场景，全文约 ${sceneCount * 100} 字）；
 4. 只输出故事正文，不要标题、不要分场景小标题、不要解释。
 
 ${title ? `故事主题：${title}\n\n` : ''}${blocks}`;
@@ -57,6 +61,36 @@ ${title ? `故事主题：${title}\n\n` : ''}${blocks}`;
 
 export function sceneToImageCaption(s: StorySceneForm): string {
   return [s.time, s.place, s.characters, s.opening, s.climax, s.ending].filter(Boolean).join('，');
+}
+
+/** 将完整故事按页数切分，供绘本每页使用 */
+export function splitStoryIntoPages(story: string, pageCount: number): string[] {
+  const text = story.trim();
+  if (!text) return Array.from({ length: Math.max(pageCount, 0) }, () => '');
+  if (pageCount <= 1) return [text];
+
+  const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  if (paragraphs.length === pageCount) return paragraphs;
+
+  const sentences =
+    text.match(/[^。！？…\n]+[。！？…]?/gu)?.map((s) => s.trim()).filter(Boolean) ?? [text];
+  if (sentences.length <= pageCount) {
+    return Array.from({ length: pageCount }, (_, i) => sentences[i] ?? (i === 0 ? text : ''));
+  }
+
+  const pages: string[] = [];
+  const base = Math.floor(sentences.length / pageCount);
+  let extra = sentences.length % pageCount;
+  let cursor = 0;
+
+  for (let i = 0; i < pageCount; i++) {
+    const count = base + (extra > 0 ? 1 : 0);
+    if (extra > 0) extra -= 1;
+    pages.push(sentences.slice(cursor, cursor + count).join(''));
+    cursor += count;
+  }
+
+  return pages;
 }
 
 export interface PictureBookStyle {

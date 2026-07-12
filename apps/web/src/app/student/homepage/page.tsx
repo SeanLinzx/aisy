@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { courseHomePath, growthPath } from '@/lib/public-url';
+import { courseHomePath, growthPath, publishPath } from '@/lib/public-url';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { QrImage } from '@/components/qr-image';
 
@@ -40,7 +40,7 @@ export default function HomepagePage() {
   const growthP = growthPath(hp.slug);
 
   return (
-    <div className="space-y-5 max-w-4xl">
+    <div className="space-y-5">
       <header className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold text-brand-dark">🌟 我的主页</h1>
@@ -112,7 +112,7 @@ export default function HomepagePage() {
           <div className="mt-3 space-y-2">
             {hp.webProjects?.map((p: any) => (
               <div key={p.id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl hover:bg-orange-50 text-sm">
-                <a target="_blank" href={`/p/${p.slug}`} className="truncate flex-1">{p.title}</a>
+                <a target="_blank" rel="noopener noreferrer" href={publishPath(p.slug)} className="truncate flex-1">{p.title}</a>
                 <button
                   type="button"
                   onClick={() => { setFeaturedId(p.id); }}

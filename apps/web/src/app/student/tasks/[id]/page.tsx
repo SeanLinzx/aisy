@@ -30,7 +30,7 @@ export default function TaskDetailPage() {
   if (!task) return <div className="text-slate-500">加载中…</div>;
 
   return (
-    <div className="space-y-5 max-w-3xl">
+    <div className="space-y-5 page-container--narrow">
       <div>
         <h1 className="text-2xl font-bold text-brand-dark">📋 {task.title}</h1>
         <p className="text-slate-600 mt-2 whitespace-pre-wrap">{task.description}</p>

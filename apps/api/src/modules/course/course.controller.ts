@@ -1,8 +1,8 @@
-import { Body, Controller, Delete, Get, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Post, Put, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { CourseService } from './course.service';
+import { CourseService, type GameProgressReportInput } from './course.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
@@ -129,10 +129,37 @@ class ReportGameProgressDto {
   @IsOptional() @IsNumber() roundCount?: number;
   @IsOptional() @IsString() summary?: string;
   @IsOptional() @IsString() error?: string;
+  @IsOptional() @IsString() themeId?: string;
+  @IsOptional() @IsObject() themes?: Record<string, unknown>;
 }
 
 class ResetGameProgressDto {
   @IsOptional() @IsString() gameSlug?: string;
+}
+
+class DecorateRoomNodeDto {
+  @IsString() id!: string;
+  @IsString() parentId!: string | null;
+  @IsString() request!: string;
+  @IsString() url!: string;
+}
+
+class DecorateRoomThemeDraftDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DecorateRoomNodeDto)
+  nodes!: DecorateRoomNodeDto[];
+  @IsString() currentId!: string;
+  @IsOptional() @IsString() savedAssetId?: string | null;
+  @IsOptional() @IsNumber() nodeSeq?: number;
+}
+
+class SaveGameDraftDto {
+  @IsString() gameSlug!: string;
+  @IsOptional() @IsString() themeId?: string;
+  @IsOptional() @ValidateNested() @Type(() => DecorateRoomThemeDraftDto) theme?: DecorateRoomThemeDraftDto;
+  @IsOptional() @IsObject() themes?: Record<string, DecorateRoomThemeDraftDto>;
+  @IsOptional() @IsString() activeThemeId?: string;
 }
 
 class SummaryAnswerDto {
@@ -149,6 +176,25 @@ class ReportSummaryDto {
   answers!: SummaryAnswerDto[];
   @IsOptional() @IsString() displayName?: string;
   @IsOptional() @IsBoolean() done?: boolean;
+}
+
+class VideoRecognitionAnswerDto {
+  @IsString() questionId!: string;
+  @IsOptional() @IsString() optionId?: string;
+  @IsOptional() @IsString() optionLabel?: string;
+}
+
+class ReportVideoRecognitionDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VideoRecognitionAnswerDto)
+  answers!: VideoRecognitionAnswerDto[];
+  @IsOptional() @IsString() displayName?: string;
+  @IsOptional() @IsBoolean() done?: boolean;
+}
+
+class SetVideoRecognitionCurrentDto {
+  @IsNumber() @Min(1) question!: number;
 }
 
 @ApiTags('course')
@@ -322,7 +368,7 @@ export class CourseController {
   @Roles('student', 'teacher', 'admin')
   reportGameProgress(@Body() dto: ReportGameProgressDto, @CurrentUser() me: AuthUser) {
     const { displayName, ...rest } = dto;
-    return this.svc.reportGameProgress(me.id, displayName || me.displayName || me.username, rest);
+    return this.svc.reportGameProgress(me.id, displayName || me.displayName || me.username, rest as GameProgressReportInput);
   }
 
   @Post('game-progress/reset')
@@ -335,6 +381,22 @@ export class CourseController {
   @Roles('teacher', 'admin')
   clearGameProgress() {
     return this.svc.clearGameProgress();
+  }
+
+  // ---- 游戏草稿（学生端持久化） ----
+
+  @Get('game-draft')
+  @Roles('student', 'teacher', 'admin')
+  getGameDraft(@Query('game') game: string, @CurrentUser() me: AuthUser) {
+    if (!game) throw new BadRequestException('缺少 game 参数');
+    return this.svc.getGameDraft(me.id, game);
+  }
+
+  @Put('game-draft')
+  @Roles('student', 'teacher', 'admin')
+  saveGameDraft(@Body() dto: SaveGameDraftDto, @CurrentUser() me: AuthUser) {
+    const { gameSlug, ...rest } = dto;
+    return this.svc.saveGameDraft(me.id, gameSlug, rest);
   }
 
   // ---- 大侦探总结分享 · 问答 ----
@@ -366,5 +428,42 @@ export class CourseController {
   @Roles('teacher', 'admin')
   clearSummary() {
     return this.svc.clearSummary();
+  }
+
+  // ---- AI 视频识别 · 课堂问答 ----
+
+  @Get('video-recognition')
+  @Roles('student', 'teacher', 'admin')
+  getVideoRecognition() {
+    return this.svc.getVideoRecognition();
+  }
+
+  @Post('video-recognition/report')
+  @Roles('student', 'teacher', 'admin')
+  reportVideoRecognition(@Body() dto: ReportVideoRecognitionDto, @CurrentUser() me: AuthUser) {
+    return this.svc.reportVideoRecognitionAnswers(
+      me.id,
+      dto.displayName || me.displayName || me.username,
+      dto.answers,
+      dto.done,
+    );
+  }
+
+  @Put('video-recognition/current')
+  @Roles('teacher', 'admin')
+  setVideoRecognitionCurrent(@Body() dto: SetVideoRecognitionCurrentDto) {
+    return this.svc.setVideoRecognitionCurrentQuestion(dto.question);
+  }
+
+  @Post('video-recognition/reset')
+  @Roles('teacher', 'admin')
+  resetVideoRecognition() {
+    return this.svc.resetVideoRecognition();
+  }
+
+  @Delete('video-recognition')
+  @Roles('teacher', 'admin')
+  clearVideoRecognition() {
+    return this.svc.clearVideoRecognition();
   }
 }

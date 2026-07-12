@@ -1,20 +1,25 @@
 'use client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { COURSE_LESSONS, THEME_GRADIENT } from '@/lib/course-config';
+import { COURSE_LESSONS, findGame, THEME_GRADIENT, THEME_CARD, type CourseGame } from '@/lib/course-config';
 import { DetectiveDeckFrame } from '@/components/course/detective-deck-frame';
 import { LESSON1_DETECTIVE_DECK, deckUrl, isDeckSlides } from '@/lib/course-deck';
 import { PdfSinglePage } from '@/components/course/pdf-single-page';
 import { CancelSubTeacherStats, type CancelSubSessionFull } from '@/components/course/games/cancel-subscription';
 import { GroupGrabTeacherPanel, type GroupGrabSession } from '@/components/course/games/group-grab';
-import { StudentWorksHub } from '@/components/course/student-works-hub';
 import { GroupScoreboardPanel } from '@/components/course/group-scoreboard-panel';
+import { GameProgressTeacherPanel } from '@/components/course/game-progress-teacher-panel';
+import { SummaryTeacherPanel } from '@/components/course/summary-teacher-panel';
+import { VideoRecognitionTeacherPanel } from '@/components/course/video-recognition-teacher-panel';
+import { GameConsoleCard } from '@/components/course/game-console-card';
+import { TeacherCourseOutlineBar } from '@/components/course/teacher-course-outline-bar';
 import {
   TRACKED_CREATION_GAMES,
   isTrackedCreationGame,
   isVideoCreationGame,
   VIDEO_CREATION_GAMES,
+  type TrackedCreationGame,
 } from '@/lib/course-game-progress';
 import { useTeacherConsole, type ConsoleClassroomState } from '@/hooks/use-teacher-console';
 import { isPadMode } from '@/lib/pad-mode';
@@ -25,6 +30,7 @@ import {
   type ClassroomShowcase,
 } from '@/lib/classroom-showcase';
 import { ClassroomShowcaseView } from '@/components/course/classroom-showcase-view';
+import { ReturnToStandbyFab } from '@/components/course/return-to-standby-fab';
 import type { GameProgressRecord } from '@/lib/course-game-progress';
 import type { SummaryStudentRecord } from '@/lib/detective-summary';
 
@@ -55,6 +61,7 @@ export default function TeacherClassroomPage() {
   const groupGrab = (console_?.groupGrab ?? null) as GroupGrabSession | null;
   const gameProgress = console_?.gameProgress ?? null;
   const summary = console_?.summary ?? null;
+  const videoRecognition = console_?.videoRecognition ?? null;
 
   // 学生名单 / 班级列表变化频率低，只在进入页面时加载一次
   useEffect(() => {
@@ -72,6 +79,16 @@ export default function TeacherClassroomPage() {
         }
       } catch {}
     })();
+  }, []);
+
+  useEffect(() => {
+    const el = stickyNavRef.current;
+    if (!el) return;
+    const sync = () => setStickyNavHeight(el.offsetHeight);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
@@ -119,6 +136,9 @@ export default function TeacherClassroomPage() {
       if (slug === 'detective-summary') {
         await api.post('/course/summary/reset').catch(() => {});
       }
+      if (slug === 'video-detective') {
+        await api.post('/course/video-recognition/reset').catch(() => {});
+      }
       await api.put('/course/classroom', { currentGame: slug, mode: 'game' });
     }, '推送失败');
 
@@ -164,6 +184,16 @@ export default function TeacherClassroomPage() {
     if (!state?.slides) return;
     return run(() => api.put('/course/classroom', { mode: 'slides' }), '切换课件失败');
   };
+
+  /** 结束游戏/作品展示，让学生回到黑板（课件同步页） */
+  const returnToStandby = () =>
+    run(async () => {
+      await api.put('/course/classroom', {
+        currentGame: null,
+        showcase: null,
+        mode: state?.slides?.url ? 'slides' : 'game',
+      });
+    }, '回到待机状态失败');
 
   const flipPage = (delta: number) => {
     if (!state?.slides) return;
@@ -233,80 +263,303 @@ export default function TeacherClassroomPage() {
   const active = !!state?.active;
   const studentCount = state ? (state.students.length === 0 ? students.length : state.students.length) : 0;
   const fileRef = useRef<HTMLInputElement>(null);
+  const stickyNavRef = useRef<HTMLDivElement>(null);
+  const [stickyNavHeight, setStickyNavHeight] = useState(152);
   const isSlides = state?.mode === 'slides' && !!state?.slides;
-  const isShowcase = state?.mode === 'showcase' && !!state?.showcase;
+  const isShowcase = !!state?.showcase;
+  const activeShowcaseStudentId = state?.showcase?.studentId ?? null;
+  const isStandby = isSlides && !state?.currentGame && !isShowcase;
   const isDeck = isSlides && isDeckSlides(state?.slides);
   const rosterStudentIds = state?.students?.length ? state.students : students.map((s) => s.id);
   const pad = isPadMode();
 
+  const currentLessonSlug = state?.currentGame ? findGame(state.currentGame)?.lesson.slug : null;
+
   const currentLabel = isShowcase
     ? `🌟 展示 ${state?.showcase?.displayName} 的作品`
-    : isSlides
+    : isStandby
       ? isDeck
-        ? `🕵️ 互动课件《${state?.slides?.name}》第 ${state?.slides?.page} 页`
-        : `📑 课件《${state?.slides?.name}》第 ${state?.slides?.page} 页`
+        ? `📺 待机 · 互动课件《${state?.slides?.name}》第 ${state?.slides?.page} 页`
+        : `📺 待机 · 课件《${state?.slides?.name}》第 ${state?.slides?.page} 页`
       : state?.currentGame
         ? `🎮 ${gameTitle(state.currentGame)}`
-        : '🏠 课程大厅';
+        : state?.slides?.url
+          ? '📺 待机（课件已就绪，学生暂未同步）'
+          : '⏳ 等待推送';
+
+  /** 游戏推送区：仅当前环节展开详情与学生作品看板。 */
+  function renderGameCard(game: CourseGame, opts?: { forceCompact?: boolean }) {
+    const current = state?.currentGame === game.slug;
+    const compact = opts?.forceCompact || (active && !current);
+
+    if (game.slug === 'group-grab') {
+      if (compact) {
+        return (
+          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} compact />
+        );
+      }
+      return (
+        <div
+          key={game.slug}
+          id="game-group-grab"
+          className={cn(
+            'rounded-2xl border-2 p-4 space-y-3',
+            current ? 'border-brand bg-orange-50/50 ring-2 ring-brand/20' : 'border-emerald-100 bg-white',
+          )}
+          style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}
+        >
+          <div className="flex items-start justify-between flex-wrap gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-extrabold flex items-center gap-1.5 flex-wrap">
+                <span>👯 {game.title}</span>
+                {current && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">● 学生在这里</span>}
+              </div>
+              <p className="text-xs text-ink-soft mt-1 leading-relaxed max-w-xl">{game.desc}</p>
+            </div>
+            {groupGrab?.active && (
+              <button onClick={() => pushGame('group-grab')} disabled={busy} className="kid-button-sm bg-white border-2 border-emerald-200 text-emerald-700 shrink-0">
+                📲 再次推送
+              </button>
+            )}
+          </div>
+          <GroupGrabTeacherPanel
+            session={groupGrab}
+            students={students}
+            classes={classes}
+            draftGroups={draftGroups}
+            classId={grabClassId}
+            busy={busy}
+            onDraftChange={setDraftGroups}
+            onClassIdChange={setGrabClassId}
+            onSetup={setupGroupGrab}
+            onStart={startGroupGrab}
+            onReassign={reassignGroupGrab}
+            onClose={closeGroupGrab}
+            onSync={syncGroupGrab}
+            onClear={clearGroupGrab}
+            onManualAssign={manualAssignGroup}
+          />
+        </div>
+      );
+    }
+
+    if (game.slug === 'cancel-subscription') {
+      if (compact) {
+        return (
+          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} compact />
+        );
+      }
+      return (
+        <div
+          key={game.slug}
+          id="game-cancel-subscription"
+          className={cn(
+            'rounded-2xl border-2 p-4 space-y-3',
+            current ? 'border-brand bg-orange-50/50 ring-2 ring-brand/20' : 'border-violet-100 bg-white',
+          )}
+          style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}
+        >
+          <div className="flex items-start justify-between flex-wrap gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-extrabold flex items-center gap-1.5 flex-wrap">
+                <span>💳 {game.title}</span>
+                {current && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">● 学生在这里</span>}
+              </div>
+              <p className="text-xs text-ink-soft mt-1 leading-relaxed max-w-xl">{game.desc}</p>
+            </div>
+            <div className="flex gap-2 flex-wrap shrink-0">
+              {!cancelSub?.active ? (
+                <button onClick={startCancelSubGame} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
+                  🚀 开启并推送
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => pushGame('cancel-subscription')} disabled={busy} className="kid-button-sm bg-white border-2 border-violet-200 text-ink-soft">
+                    📲 再次推送
+                  </button>
+                  <button onClick={endCancelSubGame} disabled={busy} className="kid-button-sm bg-white border-2 border-rose-200 text-rose-600">
+                    ⏹️ 结束游戏
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          {cancelSub?.active && (
+            <div className="text-xs font-bold text-violet-700">● 游戏进行中 · 学生应看到黄金会员取消续费页面</div>
+          )}
+          <CancelSubTeacherStats session={cancelSub} />
+        </div>
+      );
+    }
+
+    if (game.slug === 'detective-summary') {
+      return (
+        <GameConsoleCard
+          key={game.slug}
+          game={game}
+          current={current}
+          isStandby={isStandby}
+          busy={busy}
+          compact={compact}
+          onPush={() => pushGame(game.slug)}
+        >
+          {current && (
+            <SummaryTeacherPanel
+              students={students}
+              rosterIds={rosterStudentIds}
+              session={summary}
+              onPushShowcase={pushShowcaseFromSummary}
+              onEndShowcase={endShowcase}
+              pushingStudentId={pushingStudentId}
+              activeShowcaseStudentId={activeShowcaseStudentId}
+            />
+          )}
+        </GameConsoleCard>
+      );
+    }
+
+    if (game.slug === 'video-detective') {
+      return (
+        <GameConsoleCard
+          key={game.slug}
+          game={game}
+          current={current}
+          isStandby={isStandby}
+          busy={busy}
+          compact={compact}
+          onPush={() => pushGame(game.slug)}
+        >
+          {current && (
+            <VideoRecognitionTeacherPanel
+              students={students}
+              rosterIds={rosterStudentIds}
+              session={videoRecognition}
+            />
+          )}
+        </GameConsoleCard>
+      );
+    }
+
+    const trackedSlug = isTrackedCreationGame(game.slug) ? (game.slug as TrackedCreationGame) : undefined;
+    return (
+      <GameConsoleCard
+        key={game.slug}
+        game={game}
+        current={current}
+        isStandby={isStandby}
+        busy={busy}
+        compact={compact}
+        onPush={() => pushGame(game.slug)}
+        disabled={game.status === 'placeholder'}
+        footnote={
+          !trackedSlug && game.status !== 'placeholder'
+            ? '该游戏暂无实时统计面板，可推送后让学生完成。'
+            : undefined
+        }
+      >
+        {current && trackedSlug && (
+          <GameProgressTeacherPanel
+            gameSlug={trackedSlug}
+            students={students}
+            rosterIds={rosterStudentIds}
+            session={gameProgress}
+            onPushShowcase={pushShowcaseFromProgress}
+            onEndShowcase={endShowcase}
+            pushingStudentId={pushingStudentId}
+            activeShowcaseStudentId={activeShowcaseStudentId}
+            wrapCard={false}
+            maxGridHeight="max-h-[50vh]"
+          />
+        )}
+      </GameConsoleCard>
+    );
+  }
 
   return (
-    <div className={cn('space-y-5', pad ? 'max-w-none course-touch' : 'max-w-5xl')}>
+    <div
+      className={cn('space-y-5 w-full min-w-0', pad && 'course-touch')}
+      style={{ '--teacher-sticky-top': `${stickyNavHeight}px` } as CSSProperties}
+    >
       {!pad && (
         <header>
           <h1 className="font-display text-2xl font-extrabold flex items-center gap-2">🎓 课堂控制台</h1>
           <p className="text-slate-600 mt-1 text-sm">
-            开始上课后，点击任意游戏即可把全班小朋友的屏幕一起带到那个页面。学生作品按<strong>课程与游戏分类</strong>查看，可全屏浏览并推送给全班展示。上课期间学生会<strong>锁定跟课</strong>。
+            开始上课后，在对应环节卡片内查看学生作品并推送。待机时点击 <strong>▶️ 启动环节</strong> 把学生带到该活动。
           </p>
         </header>
       )}
 
-      {/* 置顶状态控制条：随页面滚动始终可见 */}
-      <div className={cn(
-        'sticky z-30 rounded-2xl border-2 shadow-md backdrop-blur px-4 py-3',
-        pad ? 'top-0 py-4' : 'top-0',
-        active ? 'bg-emerald-50/95 border-emerald-200' : 'bg-white/95 border-orange-100',
-      )}>
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          {active ? (
-            <div className={cn('font-bold flex items-center gap-2 flex-wrap', pad ? 'text-base' : 'text-sm')}>
-              <span className="inline-flex items-center gap-1 text-emerald-700">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> 正在上课
-              </span>
-              <span className="text-ink-soft">· 参与 {studentCount} 人 ·</span>
-              <span className="text-ink">{currentLabel}</span>
-            </div>
-          ) : (
-            <div className="text-sm font-bold text-ink-soft">⏸️ 还没开始上课 · 先选参与学生，再点「开始上课」。</div>
-          )}
-          <div className="flex gap-2 items-center">
-            {!connected && (
-              <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">
-                ⚠️ 连接不稳定，正在重试…
-              </span>
-            )}
+      {/* 置顶：状态控制条 + 课程大纲导航，一起随页面滚动始终可见 */}
+      <div ref={stickyNavRef} id="teacher-sticky-nav" className="sticky top-0 z-30 space-y-2">
+        <div className={cn(
+          'rounded-2xl border-2 shadow-md backdrop-blur px-4 py-3',
+          pad ? 'py-4' : '',
+          active && isStandby
+            ? 'bg-violet-50/95 border-violet-200'
+            : active
+              ? 'bg-emerald-50/95 border-emerald-200'
+              : 'bg-white/95 border-orange-100',
+        )}>
+          <div className="flex items-center justify-between flex-wrap gap-3">
             {active ? (
-              <>
-                {isShowcase && (
-                  <button onClick={endShowcase} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-amber-200 text-amber-700', pad && 'min-h-[48px] px-4 text-sm')}>
-                    ✋ 结束展示
-                  </button>
+              <div className={cn('font-bold flex items-center gap-2 flex-wrap', pad ? 'text-base' : 'text-sm')}>
+                {isStandby ? (
+                  <span className="inline-flex items-center gap-1.5 text-violet-700">
+                    <span className="w-2 h-2 rounded-full bg-violet-500 animate-pulse" /> 待机中
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-emerald-700">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> 正在上课
+                  </span>
                 )}
-                <button onClick={() => pushGame(null)} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-orange-200 text-ink-soft', pad && 'min-h-[48px] px-4 text-sm')}>🏠 回到大厅</button>
-                <button onClick={endClass} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-rose-200 text-rose-600', pad && 'min-h-[48px] px-4 text-sm')}>⏹️ 下课</button>
-              </>
+                <span className="text-ink-soft">· 参与 {studentCount} 人 ·</span>
+                <span className="text-ink">{currentLabel}</span>
+              </div>
             ) : (
-              <button onClick={start} disabled={busy || students.length === 0} className={cn('kid-button-primary', pad ? '!py-3 !px-6 text-base' : '!py-2 !px-4 text-sm')}>🚀 开始上课</button>
+              <div className="text-sm font-bold text-ink-soft">⏸️ 还没开始上课 · 先选参与学生，再点「开始上课」。</div>
             )}
+            <div className="flex gap-2 items-center">
+              {!connected && (
+                <span className="text-[11px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">
+                  ⚠️ 连接不稳定，正在重试…
+                </span>
+              )}
+              {active ? (
+                <>
+                  {state?.currentGame && !isShowcase && !isStandby && (
+                    <button
+                      onClick={() => pushGame(state.currentGame)}
+                      disabled={busy}
+                      className={cn('kid-button-sm bg-white border-2 border-emerald-200 text-emerald-700', pad && 'min-h-[48px] px-4 text-sm')}
+                    >
+                      📲 再次推送
+                    </button>
+                  )}
+                  {isShowcase && (
+                    <button onClick={endShowcase} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-amber-200 text-amber-700', pad && 'min-h-[48px] px-4 text-sm')}>
+                      ✋ 结束展示
+                    </button>
+                  )}
+                  <button onClick={endClass} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-rose-200 text-rose-600', pad && 'min-h-[48px] px-4 text-sm')}>⏹️ 下课</button>
+                </>
+              ) : (
+                <button onClick={start} disabled={busy || students.length === 0} className={cn('kid-button-primary', pad ? '!py-3 !px-6 text-base' : '!py-2 !px-4 text-sm')}>🚀 开始上课</button>
+              )}
+            </div>
           </div>
+          {error && <div className="text-sm text-rose-600 mt-2">{error}</div>}
         </div>
-        {error && <div className="text-sm text-rose-600 mt-2">{error}</div>}
+
+        <div className="rounded-2xl border-2 border-orange-100 bg-white/95 backdrop-blur shadow-sm px-3 py-2.5">
+          <TeacherCourseOutlineBar currentGameSlug={state?.currentGame ?? null} pad={pad} />
+        </div>
       </div>
 
       {/* ===== 学生实时看板（上课时置顶展示） ===== */}
       {active && isShowcase && state?.showcase && (
         <div className="kid-card-yellow space-y-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="text-sm font-bold">📺 正在全班展示 · 邀请 {state.showcase.displayName} 分享</div>
+            <div className="text-sm font-bold">📺 正在全班展示 · 邀请 {state.showcase.displayName} 分享（学生右侧浮窗，可继续自己的任务）</div>
             <button onClick={endShowcase} disabled={busy} className="kid-button-sm bg-white border-2 border-amber-200 text-amber-700">
               ✋ 结束展示，回到课堂
             </button>
@@ -315,17 +568,100 @@ export default function TeacherClassroomPage() {
         </div>
       )}
 
-      <StudentWorksHub
-        active={active}
-        currentGame={state?.currentGame ?? null}
-        students={students}
-        rosterIds={rosterStudentIds}
-        gameProgress={gameProgress}
-        summary={summary}
-        onPushShowcase={pushShowcaseFromProgress}
-        onPushSummary={pushShowcaseFromSummary}
-        pushingStudentId={pushingStudentId}
-      />
+      {active && isStandby && (
+        <div className="rounded-2xl border-2 border-violet-200 bg-violet-50/80 px-4 py-3 text-sm font-semibold text-violet-800">
+          📺 全班正在待机看课件。在下方选择环节并点击 <strong>▶️ 启动环节</strong>，即可把学生带到对应活动。
+        </div>
+      )}
+
+      {/* ===== 当前课 · 环节推送与学生作品（嵌入当前场景） ===== */}
+      {active && (
+        <div className="space-y-4">
+          {COURSE_LESSONS.map((lesson) => {
+            const isCurrentLesson = !currentLessonSlug || lesson.slug === currentLessonSlug;
+            if (!isCurrentLesson) {
+              return (
+                <div
+                  key={lesson.slug}
+                  id={`lesson-${lesson.slug}`}
+                  className={cn(THEME_CARD[lesson.color], 'px-4 py-3 flex items-center justify-between gap-2 opacity-60')}
+                  style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-base text-white bg-gradient-to-br ${THEME_GRADIENT[lesson.color]} shrink-0`}>{lesson.emoji}</span>
+                    <div className="min-w-0">
+                      <div className="font-bold text-sm truncate">第 {lesson.index} 课 · {lesson.title}</div>
+                      <div className="text-[11px] text-ink-soft">已收起 · 在上方大纲切换</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <div key={lesson.slug} id={`lesson-${lesson.slug}`} className={cn(THEME_CARD[lesson.color], 'space-y-3')} style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}>
+                <div className="flex items-center gap-2">
+                  <span className={`w-9 h-9 rounded-2xl flex items-center justify-center text-lg text-white bg-gradient-to-br ${THEME_GRADIENT[lesson.color]} shrink-0`}>{lesson.emoji}</span>
+                  <div>
+                    <div className="font-extrabold">第 {lesson.index} 课 · {lesson.title}</div>
+                    <div className="text-xs text-ink-soft mt-0.5">{lesson.goal}</div>
+                  </div>
+                </div>
+
+                {lesson.slug === 'lesson1' && (
+                  <div className="rounded-2xl border-2 border-orange-100 bg-white p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <div className="text-sm font-bold">🕵️ 第 1 课 · AI 小侦探互动课件</div>
+                        <div className="text-xs text-ink-soft mt-0.5">内置线索、测验、碎片收集；翻页后学生屏幕自动同步。</div>
+                      </div>
+                      <button onClick={playLesson1Deck} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
+                        ▶️ 向全班播放
+                      </button>
+                    </div>
+                    {isDeck && state?.slides ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button onClick={() => flipPage(-1)} disabled={busy || state.slides.page <= 1} className="kid-button-sm bg-white border-2 border-orange-200 disabled:opacity-50">⬅️ 上一页</button>
+                          <span className="tag">第 {state.slides.page} 页 · 同步中</span>
+                          <button onClick={() => flipPage(1)} disabled={busy} className="kid-button-sm bg-white border-2 border-orange-200">下一页 ➡️</button>
+                        </div>
+                        <DetectiveDeckFrame mode="present" page={state.slides.page} onPageChange={syncDeckPageFromIframe} />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-ink-soft">点击「向全班播放」后，在这里演示完整第一节课。</p>
+                    )}
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  {lesson.games.map((g) => renderGameCard(g))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* 未上课时预览全部环节 */}
+      {!active && (
+        <div className="space-y-4 opacity-50 pointer-events-none">
+          {COURSE_LESSONS.map((lesson) => (
+            <div key={lesson.slug} id={`lesson-${lesson.slug}`} className={cn(THEME_CARD[lesson.color], 'space-y-3')}>
+              <div className="flex items-center gap-2">
+                <span className={`w-9 h-9 rounded-2xl flex items-center justify-center text-lg text-white bg-gradient-to-br ${THEME_GRADIENT[lesson.color]} shrink-0`}>{lesson.emoji}</span>
+                <div>
+                  <div className="font-extrabold">第 {lesson.index} 课 · {lesson.title}</div>
+                  <div className="text-xs text-ink-soft mt-0.5">{lesson.goal}</div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {lesson.games.map((g) => renderGameCard(g))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {active && (
         <div className="kid-card-yellow space-y-3">
@@ -378,68 +714,7 @@ export default function TeacherClassroomPage() {
         )}
       </div>
 
-      {/* 第一课 · 抢组分队 */}
-      <div className={`kid-card-mint space-y-3 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="text-sm font-bold">👯 第 1 课 · 抢组分队</div>
-            <div className="text-xs text-ink-soft mt-0.5">输入多个小组名称，学生在自己电脑上抢位；满员或未抢到的可一键调剂。</div>
-          </div>
-          {groupGrab?.active && (
-            <button onClick={() => pushGame('group-grab')} disabled={busy} className="kid-button-sm bg-white border-2 border-emerald-200 text-emerald-700">
-              📲 再次推送给学生
-            </button>
-          )}
-        </div>
-        <GroupGrabTeacherPanel
-          session={groupGrab}
-          students={students}
-          classes={classes}
-          draftGroups={draftGroups}
-          classId={grabClassId}
-          busy={busy}
-          onDraftChange={setDraftGroups}
-          onClassIdChange={setGrabClassId}
-          onSetup={setupGroupGrab}
-          onStart={startGroupGrab}
-          onReassign={reassignGroupGrab}
-          onClose={closeGroupGrab}
-          onSync={syncGroupGrab}
-          onClear={clearGroupGrab}
-          onManualAssign={manualAssignGroup}
-        />
-      </div>
-
-      {/* 第一课互动课件 */}
-      <div className={`kid-card-orange space-y-3 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="text-sm font-bold">🕵️ 第 1 课 · AI 小侦探互动课件</div>
-            <div className="text-xs text-ink-soft mt-0.5">内置线索、测验、碎片收集；翻页后学生屏幕自动同步。</div>
-          </div>
-          <button onClick={playLesson1Deck} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
-            ▶️ 向全班播放
-          </button>
-        </div>
-        {isDeck && state?.slides ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={() => flipPage(-1)} disabled={busy || state.slides.page <= 1} className="kid-button-sm bg-white border-2 border-orange-200 disabled:opacity-50">⬅️ 上一页</button>
-              <span className="tag">第 {state.slides.page} 页 · 同步中</span>
-              <button onClick={() => flipPage(1)} disabled={busy} className="kid-button-sm bg-white border-2 border-orange-200">下一页 ➡️</button>
-            </div>
-            <DetectiveDeckFrame
-              mode="present"
-              page={state.slides.page}
-              onPageChange={syncDeckPageFromIframe}
-            />
-          </div>
-        ) : (
-          <p className="text-sm text-ink-soft">点击「向全班播放」后，在这里演示完整第一节课；也可让学生课后从第 1 课入口自行复习。</p>
-        )}
-      </div>
-
-      {/* PDF 课件播放面板 */}
+      {/* PDF 课件播放面板（通用工具，不挂在具体某节课下） */}
       <div className={`kid-card space-y-3 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="text-sm font-bold">📑 课件同步播放（PPT 请先导出为 PDF）</div>
@@ -476,69 +751,18 @@ export default function TeacherClassroomPage() {
         ) : null}
       </div>
 
-      {/* 「来取消续费吧」课堂游戏 */}
-      <div className={`kid-card-purple space-y-3 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <div className="text-sm font-bold">💳 来取消续费吧 · 垃圾交互挑战</div>
-            <div className="text-xs text-ink-soft mt-0.5">开启后推送给学生，可实时查看各界面误点次数与全程正确率。</div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {!cancelSub?.active ? (
-              <button onClick={startCancelSubGame} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
-                🚀 开启并推送
-              </button>
-            ) : (
-              <>
-                <button onClick={() => pushGame('cancel-subscription')} disabled={busy} className="kid-button-sm bg-white border-2 border-violet-200 text-ink-soft">
-                  📲 再次推送
-                </button>
-                <button onClick={endCancelSubGame} disabled={busy} className="kid-button-sm bg-white border-2 border-rose-200 text-rose-600">
-                  ⏹️ 结束游戏
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-        {cancelSub?.active && (
-          <div className="text-xs font-bold text-violet-700">● 游戏进行中 · 学生应看到黄金会员取消续费页面</div>
-        )}
-        <CancelSubTeacherStats session={cancelSub} />
-      </div>
-
-      {/* 游戏推送面板 */}
-      <div className={`space-y-4 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
-        <div className="text-sm font-bold text-ink-soft">🎮 点击一个游戏，推送到学生屏幕（会切换到游戏模式）：</div>
-        {COURSE_LESSONS.map((lesson) => (
-          <div key={lesson.slug} className="kid-card">
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`w-9 h-9 rounded-2xl flex items-center justify-center text-lg text-white bg-gradient-to-br ${THEME_GRADIENT[lesson.color]}`}>{lesson.emoji}</span>
-              <span className="font-extrabold">第 {lesson.index} 课 · {lesson.title}</span>
-            </div>
-            <div className={cn('grid gap-3', pad ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3')}>
-              {lesson.games.map((g) => {
-                const current = state?.currentGame === g.slug;
-                return (
-                  <button
-                    key={g.slug}
-                    onClick={() => pushGame(g.slug)}
-                    className={cn(
-                      'text-left rounded-2xl border-2 transition pad-game-btn',
-                      current ? 'border-brand bg-orange-50 ring-2 ring-brand/30' : 'border-orange-100 bg-white hover:border-brand',
-                    )}
-                  >
-                    <div className={cn('font-bold', pad ? 'text-base' : 'text-sm')}>{g.emoji} {g.title}{current ? ' · 学生在这里' : ''}</div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
       <div className="text-xs text-ink-soft">
         提示：图灵测试的题目仍在 <Link href="/teacher/turing" className="text-brand underline">图灵测试出题</Link> 里准备；这里负责把学生屏幕带到对应游戏。
       </div>
+
+      <ReturnToStandbyFab
+        active={active}
+        isStandby={isStandby}
+        busy={busy}
+        hasSlides={!!state?.slides?.url}
+        onReturn={returnToStandby}
+        pad={pad}
+      />
     </div>
   );
 }

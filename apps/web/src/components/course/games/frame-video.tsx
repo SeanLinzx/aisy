@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { ImageUpload } from '@/components/course/image-upload';
 import { AiProgress } from '@/components/course/ai-progress';
 import { VideoGenTimeHint } from '@/components/video-gen-time-hint';
@@ -83,6 +82,9 @@ export function FrameVideoGame() {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergedVideo, setMergedVideo] = useState<{ url: string; assetId?: string } | null>(null);
   const autoSavingRef = useRef(new Set<string>());
   const segmentsRef = useRef<Segment[]>([]);
   segmentsRef.current = segments;
@@ -161,11 +163,13 @@ export function FrameVideoGame() {
     const doneCount = segments.filter((s) => s.status === 'succeeded').length;
     const pending = segments.some((s) => s.status === 'queued' || s.status === 'running');
     const failed = segments.some((s) => s.status === 'failed');
-    const latestVideo = [...segments].reverse().find((s) => s.videoUrl)?.videoUrl;
+    const latestVideo = mergedVideo?.url || [...segments].reverse().find((s) => s.videoUrl)?.videoUrl;
     const status = failed && doneCount === 0 ? 'failed' : pending ? 'generating' : doneCount > 0 ? 'done' : 'generating';
     void report({
       status,
-      summary: `已完成 ${doneCount}/${segments.length} 段视频`,
+      summary: mergedVideo
+        ? `已拼接为完整视频（共 ${segments.length} 段）`
+        : `已完成 ${doneCount}/${segments.length} 段视频`,
       videoUrl: latestVideo,
       thumbnailUrl: latestVideo,
       items: segments.map((s, i) => ({
@@ -176,7 +180,7 @@ export function FrameVideoGame() {
       })),
       error: failed ? segments.find((s) => s.error)?.error : undefined,
     });
-  }, [segments, report]);
+  }, [segments, mergedVideo, report]);
 
   function setFrame(i: number, url: string) {
     setFrames((f) => f.map((v, idx) => (idx === i ? url : v)));
@@ -214,6 +218,8 @@ export function FrameVideoGame() {
     setBusy(true);
     setError(null);
     setSegments([]);
+    setMergedVideo(null);
+    setMergeError(null);
     void report({ status: 'generating', summary: '正在提交视频任务…' });
     try {
       const created: Segment[] = [];
@@ -241,16 +247,40 @@ export function FrameVideoGame() {
     }
   }
 
+  async function mergeVideos() {
+    const urls = segments.filter((s) => s.status === 'succeeded' && s.videoUrl).map((s) => s.videoUrl!);
+    if (urls.length < 2) {
+      setMergeError('至少需要 2 段已完成的视频才能拼接。');
+      return;
+    }
+    setMergeBusy(true);
+    setMergeError(null);
+    try {
+      const r = await api.post('/ai-generate/video/concat', {
+        videoUrls: urls,
+        title: `分镜完整视频 · ${urls.length} 段`,
+        segmentJobIds: segments.map((s) => s.jobId),
+        courseGame: 'frame-video',
+      });
+      setMergedVideo({ url: r.data.videoUrl, assetId: r.data.assetId });
+    } catch (e: unknown) {
+      setMergeError((e as Error)?.message || '拼接失败，请稍后重试');
+    } finally {
+      setMergeBusy(false);
+    }
+  }
+
   const hasPending = segments.some((s) => s.status === 'queued' || s.status === 'running');
   const showResults = segments.length > 0;
   const succeededSegments = segments.filter((s) => s.status === 'succeeded' && s.videoUrl);
   const allSaved = succeededSegments.length > 0 && succeededSegments.every((s) => s.assetId);
+  const canMerge = succeededSegments.length >= 2 && !hasPending;
 
   return (
     <div className="space-y-4">
       <div className="kid-card-sky">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🪄 从左到右排好你的分镜：给每个分镜上传图片，再描述相邻两帧之间发生了什么，AI 就会生成把它们连起来的视频！<b>每段视频平均约 3 分钟</b>，生成完成后会<b>自动保存到素材库</b>，也可以下载到本机。点最右边的「➕ 添加分镜」可以加更多镜头。
+          🪄 上传关键帧图片并排好顺序，描述相邻两帧之间发生了什么，AI 就会生成把它们连起来的视频！<b>每段视频平均约 3 分钟</b>，生成完成后会<b>自动保存到素材库</b>，也可以下载到本机。点最右边的「➕ 添加分镜」可以加更多镜头。
         </p>
         <div className="mt-2">
           <VideoGenTimeHint />
@@ -295,12 +325,9 @@ export function FrameVideoGame() {
         <div className="text-sm font-bold">✏️ 每两帧之间发生了什么？</div>
         {descs.map((d, i) => (
           <div key={i}>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-bold text-ink-soft">
-                第 {i + 1} 段：{frameLabel(i)} → {frameLabel(i + 1)}
-              </label>
-              <VoiceInputButton onResult={(t) => setDesc(i, (descs[i] ? descs[i] + ' ' : '') + t)} />
-            </div>
+            <label className="text-xs font-bold text-ink-soft">
+              第 {i + 1} 段：{frameLabel(i)} → {frameLabel(i + 1)}
+            </label>
             <input
               className="kid-input !py-2"
               value={d}
@@ -407,6 +434,67 @@ export function FrameVideoGame() {
               </Link>
             </p>
           )}
+
+          {canMerge && (
+            <div className="border-2 border-sky-200 bg-sky-50/60 rounded-2xl p-4 space-y-3">
+              <div className="text-sm font-bold text-sky-900">🎞️ 拼接完整视频</div>
+              <p className="text-sm text-sky-800">
+                把上面 {succeededSegments.length} 段视频按顺序合成一条完整视频，方便下载或给老师看板展示。
+              </p>
+              {!mergedVideo && (
+                <button
+                  type="button"
+                  onClick={() => void mergeVideos()}
+                  disabled={mergeBusy}
+                  className="kid-button-primary"
+                >
+                  {mergeBusy ? '正在拼接…' : '🔗 拼接为完整视频'}
+                </button>
+              )}
+              {mergeError && (
+                <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {mergeError}
+                </div>
+              )}
+              {mergedVideo && (
+                <div className="space-y-2">
+                  <video
+                    key={mergedVideo.url}
+                    src={resolveUploadPath(mergedVideo.url)}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full max-h-96 rounded-xl bg-black"
+                  />
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <button
+                      type="button"
+                      onClick={() => void downloadVideo(mergedVideo.url, '分镜完整视频.mp4')}
+                      className="kid-button-ghost text-sm"
+                    >
+                      ⬇ 下载完整视频
+                    </button>
+                    {mergedVideo.assetId ? (
+                      <span className="inline-flex items-center text-sm font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                        ✅ 已保存到素材库
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMergedVideo(null);
+                        setMergeError(null);
+                      }}
+                      className="kid-button-ghost text-sm"
+                    >
+                      🔄 重新拼接
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <AiWarning />
         </div>
       )}

@@ -5,13 +5,29 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { assetDisplayType } from '@/lib/asset-tabs';
 import { webAssetHref, webLinkSnippet } from '@/lib/persist-web-asset';
+import { publishPath } from '@/lib/public-url';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { PromptTemplates } from '@/components/prompt-templates';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
+import { LayoutBoard } from '@/components/web/layout-board';
+import { WebInteractionBuilder, type InteractionFormState } from '@/components/web/web-interaction-builder';
+import { HtmlPreview, type PickedElement } from '@/components/course/html-preview';
+import { mergeWebHtml, splitInlineWebParts } from '@/lib/merge-web-html';
+import {
+  TRIGGER_OPTIONS,
+  buildWebWorkbenchInteractionPrompt,
+  type InteractionLayerSpec,
+  type TriggerOption,
+} from '@/lib/web-interaction-prompt';
 
-type Mode = 'template' | 'prompt' | 'code';
+type Module = 'scene' | 'layout' | 'interaction';
+
+const MODULES: Array<{ key: Module; label: string; emoji: string; hint: string }> = [
+  { key: 'scene', label: '场景', emoji: '🎬', hint: '想清楚网页要讲什么故事、展示什么内容' },
+  { key: 'layout', label: '布局', emoji: '🧩', hint: '调整页面结构、排版和颜色样式' },
+  { key: 'interaction', label: '交互', emoji: '👆', hint: '点选页面上的区域，说明交互规则，让 AI 把点击效果加到网页里；也可在左侧插入素材' },
+];
 
 interface Project {
   id: string;
@@ -81,7 +97,7 @@ function WebStudioInner() {
   const search = useSearchParams();
   const initialId = search.get('id') || '';
 
-  const [mode, setMode] = useState<Mode>('prompt');
+  const [module, setModule] = useState<Module>('scene');
   const [projectId, setProjectId] = useState<string>(initialId);
   const [project, setProject] = useState<Project | null>(null);
   const [title, setTitle] = useState('我的网页');
@@ -89,10 +105,21 @@ function WebStudioInner() {
   const [html, setHtml] = useState<string>('');
   const [css, setCss] = useState<string>('');
   const [js, setJs] = useState<string>('');
-  const [busy, setBusy] = useState<'gen' | 'save' | 'publish' | null>(null);
+  const [busy, setBusy] = useState<'gen' | 'save' | 'publish' | 'interaction' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [autoPreview, setAutoPreview] = useState(true);
+  const [interactionLayers, setInteractionLayers] = useState<InteractionLayerSpec[]>([]);
+  const [interactionForm, setInteractionForm] = useState<InteractionFormState>({
+    target: '',
+    trigger: '单击',
+    result: '',
+  });
+  const [customTargets, setCustomTargets] = useState<string[]>([]);
+  const [pickMode, setPickMode] = useState(false);
+  const [addingTarget, setAddingTarget] = useState(false);
+  const [targetDraft, setTargetDraft] = useState('');
+  const [previewKey, setPreviewKey] = useState(0);
 
   // Live preview source
   const previewDoc = useMemo(() => buildPreviewDoc(html, css, js), [html, css, js]);
@@ -150,6 +177,93 @@ function WebStudioInner() {
     finally { setBusy(null); }
   }
 
+  function setInteractionField(key: keyof InteractionFormState, value: string) {
+    setInteractionForm((prev) => ({ ...prev, [key]: value }));
+    setError(null);
+  }
+
+  function confirmCustomTarget() {
+    const text = targetDraft.trim();
+    setAddingTarget(false);
+    setTargetDraft('');
+    if (!text) return;
+    setCustomTargets((prev) => (prev.includes(text) ? prev : [...prev, text]));
+    setInteractionField('target', text);
+  }
+
+  function handlePickTarget(el: PickedElement) {
+    setCustomTargets((prev) => (prev.includes(el.hint) ? prev : [...prev, el.hint]));
+    setInteractionField('target', el.hint);
+    setPickMode(false);
+  }
+
+  function validateInteractionLayer(): InteractionLayerSpec | null {
+    const target = interactionForm.target.trim();
+    const trigger = interactionForm.trigger.trim() as TriggerOption;
+    const result = interactionForm.result.trim();
+    if (!target || !trigger || !result) {
+      setError('请选好「点哪里」「什么操作」，并填写会出现什么效果。');
+      return null;
+    }
+    if (!TRIGGER_OPTIONS.includes(trigger)) {
+      setError('请选择有效的鼠标操作。');
+      return null;
+    }
+    if (!html.trim()) {
+      setError('请先在「场景」或「布局」里准备好页面内容。');
+      return null;
+    }
+    return { target, trigger, result };
+  }
+
+  async function addInteraction() {
+    const layer = validateInteractionLayer();
+    if (!layer) return;
+
+    setBusy('interaction');
+    setError(null);
+    try {
+      const baseHtml = mergeWebHtml({ html, css, js });
+      const prompt = buildWebWorkbenchInteractionPrompt({
+        pageTitle: title,
+        baseHtml,
+        newLayer: layer,
+        existingLayers: interactionLayers,
+      });
+      const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: 180_000 });
+      const merged = mergeWebHtml({ html: r.data.html || '', css: r.data.css || '', js: r.data.js || '' });
+      const parts = splitInlineWebParts(merged);
+
+      setHtml(parts.html);
+      setCss(parts.css);
+      setJs(parts.js);
+      setInteractionLayers((prev) => [...prev, layer]);
+      setPreviewKey((k) => k + 1);
+      setPickMode(false);
+
+      const nextTarget = customTargets.find((t) => t !== layer.target) || '';
+      setInteractionForm({
+        target: nextTarget,
+        trigger: layer.trigger,
+        result: '',
+      });
+
+      if (projectId) {
+        await api.post(`/web-projects/${projectId}/versions`, {
+          html: parts.html,
+          css: parts.css,
+          js: parts.js,
+          prompt,
+          notes: `添加交互：${layer.target}`,
+        });
+      }
+    } catch (e: unknown) {
+      setError((e as Error)?.message || '添加交互失败');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function insertAsset(a: Asset) {
     if (a.type === 'web') {
       const href = webAssetHref(a);
@@ -190,7 +304,7 @@ function WebStudioInner() {
     <div className="space-y-4">
       <ExploreToolHeader
         title="🌐 网页工作台"
-        desc="用提示词生成网页，可继续修改、保存版本、一键发布。"
+        desc="按「场景 → 布局 → 交互」三步完成：先描述想做什么网页，再调整样子，最后加入链接和互动，保存后一键发布。"
         actions={
           <div className="flex items-center gap-2 text-xs">
             <input className="kid-input !py-2" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="页面标题" style={{ width: 220 }} />
@@ -202,27 +316,65 @@ function WebStudioInner() {
 
       {project?.status === 'published' && project.slug && (
         <div className="text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl px-4 py-2">
-          ✅ 已发布！访问地址：<a className="underline" target="_blank" href={`/p/${project.slug}`}>/p/{project.slug}</a>
+          ✅ 已发布！访问地址：<a className="underline" target="_blank" rel="noopener noreferrer" href={publishPath(project.slug)}>{publishPath(project.slug)}</a>
         </div>
       )}
       {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>}
 
+      <div className="flex flex-wrap gap-2 text-xs">
+        {MODULES.map((m, i) => {
+          const active = module === m.key;
+          const done =
+            (m.key === 'scene' && (prompt.trim() || html.trim())) ||
+            (m.key === 'layout' && html.trim()) ||
+            (m.key === 'interaction' && (interactionLayers.length > 0 || js.trim()));
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setModule(m.key)}
+              className={`px-3 py-1.5 rounded-full font-bold border transition ${
+                active
+                  ? 'bg-brand text-white border-brand'
+                  : done
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-white text-slate-500 border-orange-100 hover:bg-orange-50'
+              }`}
+            >
+              {['①', '②', '③'][i]} {m.emoji} {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="kid-card-sky !p-4 text-sm text-ink-soft font-semibold leading-relaxed">
+        <span className="font-bold text-ink">{MODULES.find((m) => m.key === module)?.emoji} {MODULES.find((m) => m.key === module)?.label}：</span>
+        {MODULES.find((m) => m.key === module)?.hint}
+      </div>
+
       <div className="grid grid-cols-12 gap-4">
-        {/* Left: mode tabs */}
+        {/* Left: module tools */}
         <aside className="col-span-12 lg:col-span-3 space-y-3">
           <div className="kid-card !p-3">
             <div className="grid grid-cols-3 gap-1 text-xs">
-              {(['template', 'prompt', 'code'] as Mode[]).map((m) => (
-                <button key={m} onClick={() => setMode(m)} className={`py-2 rounded-xl ${mode === m ? 'bg-brand text-white' : 'bg-orange-50 text-brand-dark'}`}>
-                  {m === 'template' ? '模板' : m === 'prompt' ? '提示词' : '代码'}
+              {MODULES.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setModule(m.key)}
+                  className={`py-2 rounded-xl font-bold transition ${
+                    module === m.key ? 'bg-brand text-white' : 'bg-orange-50 text-brand-dark hover:bg-orange-100'
+                  }`}
+                >
+                  {m.emoji} {m.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {mode === 'template' && (
+          {module === 'scene' && (
             <div className="kid-card !p-3 space-y-2">
-              <div className="text-xs font-semibold text-slate-600 mb-1">挑一个模板开始</div>
+              <div className="text-xs font-semibold text-slate-600 mb-1">🎯 场景模板（点一下就能开始）</div>
               {SCAFFOLDS.map((s) => (
                 <button key={s.key} onClick={() => applyScaffold(s)} className="w-full text-left rounded-xl border border-orange-100 px-3 py-2 hover:bg-orange-50 text-sm">
                   <span className="mr-2">{s.emoji}</span>{s.label}
@@ -231,64 +383,161 @@ function WebStudioInner() {
             </div>
           )}
 
-          <div className="kid-card !p-3">
-            <div className="text-xs font-semibold text-slate-600 mb-2">🔗 我的网页（插入跳转链接）</div>
-            <div className="space-y-1.5 max-h-40 overflow-auto pr-1 mb-3">
-              {webAssets.length === 0 && <div className="text-xs text-slate-400">还没有可链接的网页素材</div>}
-              {webAssets.slice(0, 20).map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => insertAsset(a)}
-                  className="w-full text-left text-xs rounded-lg px-2 py-1.5 hover:bg-violet-50 flex items-center gap-2 border border-violet-100"
-                >
-                  <span>👆</span>
-                  <span className="truncate flex-1">{a.title}</span>
-                  <span className="text-[10px] text-violet-500 shrink-0">{assetDisplayType(a)}</span>
-                </button>
-              ))}
+          {module === 'layout' && (
+            <div className="kid-card !p-3 space-y-2">
+              <div className="text-xs font-semibold text-slate-600">🧩 布局小贴士</div>
+              <ul className="text-[11px] text-slate-500 space-y-1.5 leading-relaxed list-disc pl-4">
+                <li>中间「AI 布局板」会自动识别标题、图片、段落等主要块</li>
+                <li>拖拽卡片即可调整顺序，HTML 与右侧预览会一起更新</li>
+                <li>也可以直接在 HTML / CSS 编辑器里精细修改样式</li>
+              </ul>
             </div>
-            <div className="text-xs font-semibold text-slate-600 mb-2">📦 其他素材（点击插入）</div>
-            <div className="space-y-1.5 max-h-40 overflow-auto pr-1">
-              {otherAssets.length === 0 && <div className="text-xs text-slate-400">还没有素材</div>}
-              {otherAssets.slice(0, 20).map((a) => (
-                <button key={a.id} onClick={() => insertAsset(a)} className="w-full text-left text-xs rounded-lg px-2 py-1 hover:bg-orange-50 flex items-center gap-2">
-                  <span>{({ image: '🖼️', video: '🎬', text: '📝', poster: '🖼️', ppt: '📊', code: '💻', mixed: '🎁', audio: '🔊' } as Record<string, string>)[a.type] || '📁'}</span>
-                  <span className="truncate flex-1">{a.title}</span>
-                </button>
-              ))}
+          )}
+
+          {module === 'interaction' && (
+            <div className="kid-card !p-3 space-y-2">
+              <div className="text-xs font-semibold text-slate-600">👆 交互小贴士</div>
+              <ul className="text-[11px] text-slate-500 space-y-1.5 leading-relaxed list-disc pl-4">
+                <li>右侧预览点「🎯 点选目标」，选中图片、标题等区域</li>
+                <li>中间填写：点哪里 → 什么操作 → 出现什么效果</li>
+                <li>可以一条一条叠加多条交互规则</li>
+                <li>左侧仍可插入图片、视频、链接等素材</li>
+              </ul>
             </div>
-          </div>
+          )}
+
+          {module === 'interaction' && (
+            <div className="kid-card !p-3">
+              <div className="text-xs font-semibold text-slate-600 mb-2">🔗 我的网页（插入跳转链接）</div>
+              <div className="space-y-1.5 max-h-40 overflow-auto pr-1 mb-3">
+                {webAssets.length === 0 && <div className="text-xs text-slate-400">还没有可链接的网页素材</div>}
+                {webAssets.slice(0, 20).map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => insertAsset(a)}
+                    className="w-full text-left text-xs rounded-lg px-2 py-1.5 hover:bg-violet-50 flex items-center gap-2 border border-violet-100"
+                  >
+                    <span>👆</span>
+                    <span className="truncate flex-1">{a.title}</span>
+                    <span className="text-[10px] text-violet-500 shrink-0">{assetDisplayType(a)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="text-xs font-semibold text-slate-600 mb-2">📦 其他素材（点击插入）</div>
+              <div className="space-y-1.5 max-h-40 overflow-auto pr-1">
+                {otherAssets.length === 0 && <div className="text-xs text-slate-400">还没有素材</div>}
+                {otherAssets.slice(0, 20).map((a) => (
+                  <button key={a.id} onClick={() => insertAsset(a)} className="w-full text-left text-xs rounded-lg px-2 py-1 hover:bg-orange-50 flex items-center gap-2">
+                    <span>{({ image: '🖼️', video: '🎬', text: '📝', poster: '🖼️', ppt: '📊', code: '💻', mixed: '🎁', audio: '🔊' } as Record<string, string>)[a.type] || '📁'}</span>
+                    <span className="truncate flex-1">{a.title}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </aside>
 
         {/* Middle: editor */}
         <section className="col-span-12 lg:col-span-5 space-y-3">
-          {mode === 'prompt' && (
+          {module === 'scene' && (
             <div className="kid-card !p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">🪄 提示词</div>
-                <VoiceInputButton onResult={(t) => setPrompt((p) => (p ? p + '\n' : '') + t)} />
-              </div>
+              <div className="text-sm font-semibold">🎬 场景描述</div>
+              <p className="text-xs text-slate-500">用一句话告诉 AI：这个网页是给谁看的、要展示什么内容。</p>
               <PromptTemplates category="web" onPick={(t) => setPrompt(t.prompt)} />
-              <textarea className="kid-textarea" rows={4} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="例如：帮我做一个介绍小宠物兔子的网页，要有 3 张照片占位、1 段介绍文字" />
-              <button onClick={generate} disabled={busy === 'gen'} className="kid-button-primary w-full">{busy === 'gen' ? '生成中…' : '✨ 让 AI 生成 / 重新生成'}</button>
-              {busy === 'gen' && <AiProgress label="AI 正在生成网页…" />}
+              <textarea
+                className="kid-textarea"
+                rows={4}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="例如：帮我做一个介绍小宠物兔子的网页，要有 3 张照片占位、1 段介绍文字"
+              />
+              <button onClick={generate} disabled={busy === 'gen'} className="kid-button-primary w-full">
+                {busy === 'gen' ? '生成中…' : '✨ 让 AI 生成网页'}
+              </button>
+              {busy === 'gen' && (
+                <AiProgress label="AI 正在根据场景生成网页…" estimate="预计约 1 分钟" durationMs={60_000} />
+              )}
             </div>
           )}
 
-          <div className="kid-card !p-3">
-            <div className="text-xs font-semibold text-slate-600 mb-2">📝 HTML</div>
-            <textarea className="kid-textarea !min-h-[180px] font-mono text-xs" value={html} onChange={(e) => setHtml(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
+          {(module === 'scene' || module === 'layout') && (
             <div className="kid-card !p-3">
-              <div className="text-xs font-semibold text-slate-600 mb-2">🎨 CSS</div>
-              <textarea className="kid-textarea !min-h-[120px] font-mono text-xs" value={css} onChange={(e) => setCss(e.target.value)} />
+              <div className="text-xs font-semibold text-slate-600 mb-2">📝 HTML · 页面结构</div>
+              <textarea className="kid-textarea !min-h-[180px] font-mono text-xs" value={html} onChange={(e) => setHtml(e.target.value)} />
             </div>
+          )}
+
+          {module === 'layout' && html.trim() && (
+            <LayoutBoard html={html} onHtmlChange={setHtml} />
+          )}
+
+          {module === 'layout' && (
             <div className="kid-card !p-3">
-              <div className="text-xs font-semibold text-slate-600 mb-2">⚡ JS（受限）</div>
-              <textarea className="kid-textarea !min-h-[120px] font-mono text-xs" value={js} onChange={(e) => setJs(e.target.value)} />
+              <div className="text-xs font-semibold text-slate-600 mb-2">🎨 CSS · 颜色与排版</div>
+              <textarea className="kid-textarea !min-h-[200px] font-mono text-xs" value={css} onChange={(e) => setCss(e.target.value)} />
             </div>
-          </div>
+          )}
+
+          {module === 'interaction' && (
+            <>
+              {!html.trim() ? (
+                <div className="kid-card !p-4 text-sm text-ink-soft">
+                  请先在「场景」生成网页，或在「布局」里准备好 HTML 内容，再来加交互。
+                </div>
+              ) : (
+                <div className="kid-card !p-3">
+                  <WebInteractionBuilder
+                    form={interactionForm}
+                    layers={interactionLayers}
+                    customTargets={customTargets}
+                    addingTarget={addingTarget}
+                    targetDraft={targetDraft}
+                    busy={busy === 'interaction'}
+                    error={busy === 'interaction' ? null : error}
+                    onFieldChange={setInteractionField}
+                    onConfirmCustomTarget={confirmCustomTarget}
+                    onStartAddTarget={() => {
+                      setAddingTarget(true);
+                      setTargetDraft('');
+                    }}
+                    onCancelAddTarget={() => {
+                      setAddingTarget(false);
+                      setTargetDraft('');
+                    }}
+                    onTargetDraftChange={setTargetDraft}
+                    onAddInteraction={addInteraction}
+                  />
+                </div>
+              )}
+              <details className="kid-card !p-3">
+                <summary className="text-xs font-semibold text-slate-600 cursor-pointer">📝 高级 · 直接编辑 HTML / JS</summary>
+                <div className="mt-3 space-y-3">
+                  <textarea className="kid-textarea !min-h-[100px] font-mono text-xs" value={html} onChange={(e) => setHtml(e.target.value)} />
+                  <textarea className="kid-textarea !min-h-[80px] font-mono text-xs" value={js} onChange={(e) => setJs(e.target.value)} placeholder="JS（AI 加交互后会写在这里）" />
+                </div>
+              </details>
+            </>
+          )}
+
+          {module === 'layout' && (
+            <button
+              type="button"
+              onClick={() => setModule('interaction')}
+              className="kid-button-ghost text-sm w-full"
+            >
+              布局好了 → 去加交互 👆
+            </button>
+          )}
+
+          {module === 'scene' && html.trim() && (
+            <button
+              type="button"
+              onClick={() => setModule('layout')}
+              className="kid-button-ghost text-sm w-full"
+            >
+              场景生成好了 → 去调布局 🧩
+            </button>
+          )}
 
           {project && (
             <div className="kid-card !p-3">
@@ -305,19 +554,66 @@ function WebStudioInner() {
         {/* Right: preview */}
         <section className="col-span-12 lg:col-span-4">
           <div className="kid-card !p-3 sticky top-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold">🔍 实时预览</div>
-              <label className="text-xs text-slate-500 flex items-center gap-1">
-                <input type="checkbox" checked={autoPreview} onChange={(e) => setAutoPreview(e.target.checked)} /> 自动刷新
-              </label>
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <div className="text-sm font-semibold">
+                {module === 'interaction' && html.trim() ? '🔍 预览 · 点选目标' : '🔍 实时预览'}
+              </div>
+              {module === 'interaction' && html.trim() ? (
+                <div className="flex items-center gap-2">
+                  <span className="tag text-[10px]">
+                    {interactionLayers.length > 0 ? `${interactionLayers.length} 条交互` : '待加交互'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPickMode((v) => !v)}
+                    className={`kid-button-sm border-2 ${pickMode ? 'bg-violet-500 text-white border-violet-500' : 'bg-white text-ink-soft border-violet-200'}`}
+                  >
+                    🎯 点选目标
+                  </button>
+                </div>
+              ) : (
+                <label className="text-xs text-slate-500 flex items-center gap-1">
+                  <input type="checkbox" checked={autoPreview} onChange={(e) => setAutoPreview(e.target.checked)} /> 自动刷新
+                </label>
+              )}
             </div>
-            <iframe
-              key={autoPreview ? html + css + js : 'static'}
-              sandbox="allow-scripts"
-              srcDoc={previewDoc}
-              className="w-full h-[600px] rounded-2xl border border-orange-100 bg-white"
-            />
+            {module === 'interaction' && html.trim() ? (
+              <>
+                <HtmlPreview
+                  key={`${previewKey}-${pickMode ? 'pick' : 'view'}`}
+                  html={html}
+                  css={css}
+                  js={js}
+                  height={520}
+                  interactive
+                  pickMode={pickMode}
+                  onPick={pickMode ? handlePickTarget : undefined}
+                />
+                <p className="text-xs text-center text-ink-soft mt-2">
+                  {pickMode
+                    ? '↑ 点一下页面里的区域，会自动填到左边「点哪里」'
+                    : interactionLayers.length > 0
+                      ? '↑ 可以试玩已有交互；想加新的就点「点选目标」'
+                      : '↑ 点「点选目标」选中区域，再填写交互规则'}
+                </p>
+              </>
+            ) : (
+              <iframe
+                key={autoPreview ? html + css + js : 'static'}
+                sandbox="allow-scripts"
+                srcDoc={previewDoc}
+                className="w-full h-[600px] rounded-2xl border border-orange-100 bg-white"
+              />
+            )}
             <div className="mt-3"><AiWarning extra="发布前请先自己看一下网页内容是否合适。" /></div>
+            {busy === 'interaction' && (
+              <div className="mt-2">
+                <AiProgress label="AI 正在把交互写入页面…" estimate="预计约 1 分钟" durationMs={60_000} />
+              </div>
+            )}
+            {error && module === 'interaction' && busy !== 'interaction' && (
+              <div className="mt-2 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+            )}
             <div className="mt-3 flex gap-2 text-xs">
               <Link href="/student/projects" className="text-brand">← 返回我的网页</Link>
             </div>
@@ -329,7 +625,7 @@ function WebStudioInner() {
 }
 
 function buildPreviewDoc(html: string, css?: string, js?: string): string {
-  const safeHtml = html || '<p style="font-family:system-ui;color:#9ca3af;text-align:center;margin-top:40%">在左侧编辑或生成内容来开始预览</p>';
+  const safeHtml = html || '<p style="font-family:system-ui;color:#9ca3af;text-align:center;margin-top:40%">在「场景」里描述或生成内容，预览会出现在这里</p>';
   // If user provided full HTML doc, inject css/js. Otherwise wrap.
   if (/<\/html>/i.test(safeHtml)) {
     let doc = safeHtml;

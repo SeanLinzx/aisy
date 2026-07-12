@@ -7,7 +7,7 @@ export default function AdminHome() {
   useEffect(() => { api.get('/dashboard/overview').then(r => setData(r.data)); }, []);
   if (!data) return <div className="text-slate-500">加载中…</div>;
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <h1 className="text-2xl font-bold text-brand-dark">📊 平台总览</h1>
       <div className="grid sm:grid-cols-5 gap-3">
         <Stat label="用户" value={data.users} />

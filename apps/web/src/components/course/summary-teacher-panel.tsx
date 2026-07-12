@@ -31,11 +31,15 @@ function OptionBar({ label, count, total, highlight }: { label: string; count: n
 function StudentDetail({
   record,
   onPushShowcase,
+  onEndShowcase,
   pushing,
+  isShowcasing,
 }: {
   record: SummaryStudentRecord;
   onPushShowcase?: (record: SummaryStudentRecord) => void;
+  onEndShowcase?: () => void;
   pushing?: boolean;
+  isShowcasing?: boolean;
 }) {
   const score = summaryQuizScore(record.answers);
   return (
@@ -74,14 +78,25 @@ function StudentDetail({
         })}
       </div>
       {onPushShowcase && showcaseFromSummary(record) && (
-        <button
-          type="button"
-          disabled={pushing}
-          onClick={() => onPushShowcase(record)}
-          className="w-full kid-button-sm bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0 shadow-sm hover:brightness-105 disabled:opacity-60"
-        >
-          {pushing ? '推送中…' : '🌟 推送给全班分享'}
-        </button>
+        isShowcasing && onEndShowcase ? (
+          <button
+            type="button"
+            disabled={pushing}
+            onClick={onEndShowcase}
+            className="w-full kid-button-sm bg-white border-2 border-amber-300 text-amber-800 shadow-sm hover:bg-amber-50 disabled:opacity-60"
+          >
+            {pushing ? '处理中…' : '✋ 结束推送'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={pushing}
+            onClick={() => onPushShowcase(record)}
+            className="w-full kid-button-sm bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0 shadow-sm hover:brightness-105 disabled:opacity-60"
+          >
+            {pushing ? '推送中…' : '🌟 推送给全班分享'}
+          </button>
+        )
       )}
     </div>
   );
@@ -92,7 +107,9 @@ export function SummaryTeacherPanel({
   rosterIds,
   session: externalSession,
   onPushShowcase,
+  onEndShowcase,
   pushingStudentId,
+  activeShowcaseStudentId,
 }: {
   students: Array<{ id: string; displayName: string; username: string }>;
   /** 课堂参与学生 id；空 = 全班 */
@@ -100,7 +117,9 @@ export function SummaryTeacherPanel({
   /** 由中控台聚合轮询注入；提供后本组件不再自行轮询 */
   session?: SummarySession | null;
   onPushShowcase?: (record: SummaryStudentRecord) => void;
+  onEndShowcase?: () => void;
   pushingStudentId?: string | null;
+  activeShowcaseStudentId?: string | null;
 }) {
   const external = externalSession !== undefined;
   const [polled, setPolled] = useState<SummarySession | null>(null);
@@ -206,7 +225,9 @@ export function SummaryTeacherPanel({
                   key={s.id}
                   record={answeredByStudent.get(s.id)!}
                   onPushShowcase={onPushShowcase}
+                  onEndShowcase={onEndShowcase}
                   pushing={pushingStudentId === s.id}
+                  isShowcasing={activeShowcaseStudentId === s.id}
                 />
               ))}
             {/* 不在名单里但有作答的学生（如全班模式外的账号） */}
@@ -217,7 +238,9 @@ export function SummaryTeacherPanel({
                   key={r.studentId}
                   record={r}
                   onPushShowcase={onPushShowcase}
+                  onEndShowcase={onEndShowcase}
                   pushing={pushingStudentId === r.studentId}
+                  isShowcasing={activeShowcaseStudentId === r.studentId}
                 />
               ))}
           </div>

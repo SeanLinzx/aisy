@@ -38,7 +38,7 @@ export default function LiveSlidesPage() {
   const deck = slides && isDeckSlides(slides);
 
   return (
-    <div className="space-y-4 max-w-5xl mx-auto">
+    <div className="space-y-4">
       <header className="flex items-center gap-2">
         <span className="text-3xl">🎓</span>
         <div>

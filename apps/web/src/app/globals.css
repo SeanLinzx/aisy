@@ -101,6 +101,23 @@ h1, h2, h3, h4 {
 .kid-card-purple { @apply kid-card border-violet-200 bg-gradient-to-br from-white to-violet-50; }
 .kid-card-orange { @apply kid-card border-orange-200 bg-gradient-to-br from-white to-orange-50; }
 
+/* 页面主内容：铺满侧栏右侧区域，避免 max-w-* 导致宽屏右侧空白 */
+.page-container {
+  @apply w-full min-w-0;
+}
+.page-container--narrow {
+  @apply w-full min-w-0 max-w-3xl mx-auto;
+}
+
+/* 课程大纲导航跳转后短暂高亮目标区域，帮助老师确认找对了地方 */
+.outline-highlight {
+  animation: outline-pulse 1.6s ease-out;
+}
+@keyframes outline-pulse {
+  0% { box-shadow: 0 0 0 4px rgba(255, 122, 89, 0.4); }
+  100% { box-shadow: 0 0 0 4px rgba(255, 122, 89, 0); }
+}
+
 /* ---------- 按钮（拟物 / 弹按） ---------- */
 .kid-button {
   @apply inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 font-bold text-base shadow-pop-sm transition-all duration-150 select-none;
@@ -142,6 +159,11 @@ h1, h2, h3, h4 {
 }
 .kid-textarea {
   @apply kid-input min-h-[120px] resize-y leading-relaxed;
+}
+/* 紧凑输入框：用于教师配置类的密集表单（如抢组小组设置），宽度由外层 grid 列宽控制 */
+.compact-input {
+  @apply w-full min-w-0 rounded-lg border-2 border-orange-100 bg-white px-1.5 py-1.5 text-sm font-medium text-ink placeholder:text-slate-400;
+  @apply focus:outline-none focus:ring-2 focus:ring-brand/25 focus:border-brand transition;
 }
 
 /* ---------- 标签 / Pill ---------- */

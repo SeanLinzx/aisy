@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, apiDownloadHref } from '@/lib/api';
 import { QrImage } from '@/components/qr-image';
 
 interface StudentLink {
@@ -48,7 +48,7 @@ export default function StudentsPage() {
   function downloadZip(kind: 'course' | 'growth' | 'both') {
     const q = new URLSearchParams({ kind });
     if (classId) q.set('classId', classId);
-    window.location.href = `/api/exports/student-qrcodes.zip?${q.toString()}`;
+    window.location.href = apiDownloadHref(`/exports/student-qrcodes.zip?${q.toString()}`);
   }
 
   return (
@@ -109,12 +109,10 @@ export default function StudentsPage() {
                 <ShareBlock
                   title="📚 课程主页"
                   url={s.courseHomeUrl!}
-                  path={`/s/${s.homepageSlug}`}
                 />
                 <ShareBlock
                   title="📈 成长历程"
                   url={s.growthUrl!}
-                  path={`/g/${s.homepageSlug}`}
                 />
               </div>
             )}
@@ -130,7 +128,7 @@ export default function StudentsPage() {
   );
 }
 
-function ShareBlock({ title, url, path }: { title: string; url: string; path: string }) {
+function ShareBlock({ title, url }: { title: string; url: string }) {
   return (
     <div className="rounded-2xl bg-orange-50/80 border-2 border-orange-100 p-4 flex gap-4 items-start">
       <QrImage url={url} size={100} />
@@ -138,7 +136,7 @@ function ShareBlock({ title, url, path }: { title: string; url: string; path: st
         <div className="font-bold text-sm">{title}</div>
         <p className="text-xs text-slate-600 break-all">{url}</p>
         <div className="flex flex-wrap gap-2">
-          <a href={path} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand">打开预览 ↗</a>
+          <a href={url} target="_blank" rel="noreferrer" className="text-xs font-bold text-brand">打开预览 ↗</a>
           <button
             type="button"
             className="text-xs font-bold text-slate-500"

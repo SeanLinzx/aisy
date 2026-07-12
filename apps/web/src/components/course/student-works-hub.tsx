@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { COURSE_LESSONS, THEME_GRADIENT } from '@/lib/course-config';
 import { GameProgressTeacherPanel } from '@/components/course/game-progress-teacher-panel';
 import { SummaryTeacherPanel } from '@/components/course/summary-teacher-panel';
+import { VideoRecognitionTeacherPanel } from '@/components/course/video-recognition-teacher-panel';
 import { StudentWorksModal } from '@/components/course/student-works-modal';
 import type { GameProgressRecord, GameProgressSession } from '@/lib/course-game-progress';
 import type { SummarySession, SummaryStudentRecord } from '@/lib/detective-summary';
+import type { VideoRecognitionSession } from '@/lib/video-recognition';
 import {
   buildWorksLessonGroups,
   countRecordsForSlugs,
@@ -30,6 +32,7 @@ export function StudentWorksHub({
   rosterIds,
   gameProgress,
   summary,
+  videoRecognition,
   onPushShowcase,
   onPushSummary,
   pushingStudentId,
@@ -40,6 +43,7 @@ export function StudentWorksHub({
   rosterIds: string[];
   gameProgress: GameProgressSession | null;
   summary: SummarySession | null;
+  videoRecognition: VideoRecognitionSession | null;
   onPushShowcase?: (record: GameProgressRecord) => void;
   onPushSummary?: (record: SummaryStudentRecord) => void;
   pushingStudentId?: string | null;
@@ -62,6 +66,7 @@ export function StudentWorksHub({
     ? undefined
     : groups.find((g) => g.lesson.slug === lessonSlug) ?? groups[0];
   const isSummary = gameKey === 'detective-summary';
+  const isVideoRecognition = gameKey === 'video-detective';
 
   const gameOptions = useMemo(() => {
     if (lessonSlug === 'lesson5') {
@@ -82,19 +87,24 @@ export function StudentWorksHub({
     return opts;
   }, [currentGroup, lessonSlug]);
 
-  const slugs = currentGroup && !isSummary ? gameKeyToSlugs(currentGroup, gameKey) : [];
+  const slugs = currentGroup && !isSummary && !isVideoRecognition ? gameKeyToSlugs(currentGroup, gameKey) : [];
   const stats = countRecordsForSlugs(gameProgress, slugs);
   const summaryDone = Object.values(summary?.records || {}).filter((r) => r.done).length;
   const summaryTotal = Object.values(summary?.records || {}).length;
+  const vrDone = Object.values(videoRecognition?.records || {}).filter((r) => r.done).length;
+  const vrTotal = Object.values(videoRecognition?.records || {}).length;
 
   const panelTitle = isSummary
     ? '大侦探总结分享'
-    : currentGroup
-      ? gameKeyLabel(currentGroup, gameKey)
-      : '学生作品';
+    : isVideoRecognition
+      ? 'AI 视频识别'
+      : currentGroup
+        ? gameKeyLabel(currentGroup, gameKey)
+        : '学生作品';
   const followingCurrent =
     (currentGame === 'detective-summary' && isSummary) ||
-    (!!currentGame && !isSummary && slugs.includes(currentGame as never));
+    (currentGame === 'video-detective' && isVideoRecognition) ||
+    (!!currentGame && !isSummary && !isVideoRecognition && slugs.includes(currentGame as never));
 
   if (!active) return null;
 
@@ -173,7 +183,9 @@ export function StudentWorksHub({
             const optSlugs = currentGroup ? gameKeyToSlugs(currentGroup, opt.key) : [];
             const c = opt.key === 'detective-summary'
               ? { done: summaryDone, generating: summaryTotal - summaryDone, failed: 0, total: summaryTotal }
-              : countRecordsForSlugs(gameProgress, optSlugs);
+              : opt.key === 'video-detective'
+                ? { done: vrDone, generating: vrTotal - vrDone, failed: 0, total: vrTotal }
+                : countRecordsForSlugs(gameProgress, optSlugs);
             return (
               <button
                 key={opt.key}
@@ -229,6 +241,11 @@ export function StudentWorksHub({
                 <span className="tag">已提交 {summaryDone}</span>
                 <span className="tag bg-amber-50 text-amber-700 border-amber-200">作答中 {Math.max(0, summaryTotal - summaryDone)}</span>
               </>
+            ) : isVideoRecognition ? (
+              <>
+                <span className="tag">已提交 {vrDone}</span>
+                <span className="tag bg-amber-50 text-amber-700 border-amber-200">作答中 {Math.max(0, vrTotal - vrDone)}</span>
+              </>
             ) : (
               <>
                 <span className="tag">参与 {rosterIds.length || students.length} 人</span>
@@ -250,6 +267,12 @@ export function StudentWorksHub({
               onPushShowcase={onPushSummary}
               pushingStudentId={pushingStudentId}
             />
+          ) : isVideoRecognition ? (
+            <VideoRecognitionTeacherPanel
+              students={students}
+              rosterIds={rosterIds}
+              session={videoRecognition}
+            />
           ) : slugs.length > 0 ? (
             <GameProgressTeacherPanel
               gameSlug={slugs.length === 1 ? slugs[0] : undefined}
@@ -261,6 +284,7 @@ export function StudentWorksHub({
               onPushShowcase={onPushShowcase}
               pushingStudentId={pushingStudentId}
               wrapCard={false}
+              hideHeader
               maxGridHeight="max-h-[50vh]"
             />
           ) : (
@@ -280,13 +304,14 @@ export function StudentWorksHub({
               ? `第 ${lesson5.index} 课 · ${lesson5.title}`
               : undefined
         }
-        mode={isSummary ? 'summary' : 'creation'}
+        mode={isSummary ? 'summary' : isVideoRecognition ? 'video-recognition' : 'creation'}
         gameSlug={slugs.length === 1 ? slugs[0] : undefined}
         gameSlugs={slugs.length > 1 ? slugs : undefined}
         students={students}
         rosterIds={rosterIds}
         session={gameProgress}
         summarySession={summary}
+        videoRecognitionSession={videoRecognition}
         onPushShowcase={onPushShowcase}
         onPushSummary={onPushSummary}
         pushingStudentId={pushingStudentId}

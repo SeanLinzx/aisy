@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiAuth } from '@/lib/api';
-import { VoiceInputButton } from '@/components/voice-input';
 import {
   canAddCustomKeyword,
   emptyCustomKeywords,
@@ -163,7 +162,6 @@ function CategoryCustomAdd({
         <button type="button" onClick={submit} className="kid-button-sm bg-white border-amber-200 text-amber-700 text-xs">
           ➕ 加入
         </button>
-        <VoiceInputButton onResult={(t) => setDraft((prev) => (prev ? `${prev}${t}` : t))} />
       </div>
       <p className="text-[10px] text-ink-soft">自定义词只保存在本账号的这台设备上，不会同步给其他同学。</p>
       {hint && <p className="text-[10px] text-rose-600">{hint}</p>}
@@ -171,12 +169,64 @@ function CategoryCustomAdd({
   );
 }
 
+export function KeywordPromptPreview({
+  selection,
+  prompt,
+}: {
+  selection: KeywordSelection;
+  prompt: string;
+}) {
+  const hasSelection = Object.values(selection).some((arr) => arr.length > 0);
+  const built = prompt.trim() || buildPromptFromKeywords(selection);
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4 space-y-3">
+      <div className="text-sm font-bold text-ink-soft flex items-center gap-1.5">
+        <span>📝</span> 提示词总结
+      </div>
+      {hasSelection ? (
+        <>
+          {CATEGORIES.map((cat) => {
+            const selected = selection[cat.key];
+            if (selected.length === 0) return null;
+            return (
+              <div key={cat.key}>
+                <div className="text-xs font-semibold text-slate-500 flex items-center gap-1">
+                  <span>{cat.emoji}</span> {cat.label}
+                </div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {selected.map((word) => (
+                    <span
+                      key={word}
+                      className="text-xs font-bold px-2 py-0.5 rounded-lg bg-white/80 border border-amber-200 text-amber-800"
+                    >
+                      {word}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <div className="border-t border-amber-200 pt-3">
+            <div className="text-xs font-semibold text-slate-500 mb-1.5">完整提示词</div>
+            <p className="text-sm font-medium text-ink leading-relaxed">{built}</p>
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400 leading-relaxed">点选左边的关键词，这里会显示拼好的提示词～</p>
+      )}
+    </div>
+  );
+}
+
 export function PromptKeywordPicker({
   selection,
   onChange,
+  showInlinePreview = true,
 }: {
   selection: KeywordSelection;
   onChange: (sel: KeywordSelection, prompt: string) => void;
+  showInlinePreview?: boolean;
 }) {
   const [userId, setUserId] = useState<string | null>(null);
   const [customWords, setCustomWords] = useState<CustomKeywordsByCategory>(() => emptyCustomKeywords());
@@ -319,7 +369,7 @@ export function PromptKeywordPicker({
         );
       })}
 
-      {hasSelection && (
+      {showInlinePreview && hasSelection && (
         <div className="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
           预览：{buildPromptFromKeywords(selection)}
         </div>

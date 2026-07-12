@@ -54,6 +54,14 @@ const PICKER_SCRIPT = `
 })();
 `;
 
+/** 把小朋友在预览里点选的若干个块，整理成一段可以塞进 AI 提示词的说明文字 */
+export function describePickedElements(blocks: PickedElement[]): string {
+  if (!blocks.length) return '';
+  return blocks
+    .map((b, i) => `${i + 1}. ${b.hint}\n   对应的 HTML 片段：${b.outerHtml}`)
+    .join('\n');
+}
+
 export function buildPreviewDoc(html: string, css?: string, js?: string, pickMode = false): string {
   const safeHtml = html || '<p style="font-family:system-ui;color:#9ca3af;text-align:center;margin-top:40%">这里会显示页面预览</p>';
   if (/<\/html>/i.test(safeHtml)) {

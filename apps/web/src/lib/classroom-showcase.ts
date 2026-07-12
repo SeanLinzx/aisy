@@ -3,6 +3,7 @@ import {
   type GameProgressRecord,
   type TrackedCreationGame,
 } from '@/lib/course-game-progress';
+import { DECORATE_ROOM_THEMES } from '@/lib/decorate-room-draft';
 import {
   SUMMARY_QUESTIONS,
   type SummaryStudentRecord,
@@ -39,7 +40,9 @@ export function showcaseFromProgress(record: GameProgressRecord): ClassroomShowc
     displayName: record.displayName,
     gameSlug: record.gameSlug,
     gameTitle: GAME_PROGRESS_LABELS[record.gameSlug as TrackedCreationGame] || record.gameSlug,
-    title: record.title,
+    title: record.title || (record.themeId
+      ? DECORATE_ROOM_THEMES.find((t) => t.id === record.themeId)?.title
+      : undefined),
     prompt: record.prompt,
     imageUrls: record.imageUrls,
     videoUrl: record.videoUrl,

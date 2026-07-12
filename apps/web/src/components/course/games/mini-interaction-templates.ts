@@ -59,41 +59,6 @@ h1{margin:0 0 8px;color:#fff;font-size:28px;text-shadow:0 2px 8px rgba(0,0,0,.15
 </body></html>`,
   },
   {
-    id: 'score',
-    title: '小游戏得分板',
-    emoji: '🏆',
-    desc: '显示分数和按钮，但按钮还不会动。',
-    clickTargets: ['加 1 分 按钮', '分数数字', '游戏标题「星际跑酷」'],
-    resultOptions: [
-      '分数数字会变大并闪一下绿色，播放「叮」的提示感',
-      '标题会旋转一圈并变成金色',
-      '按钮会轻轻弹跳，显示「太棒了！」',
-    ],
-    defaults: {
-      target: '加 1 分 按钮',
-      trigger: '单击',
-      result: '分数数字会变大并闪一下绿色，播放「叮」的提示感',
-    },
-    html: `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:system-ui,sans-serif;background:linear-gradient(135deg,#fef3c7,#fde68a);display:flex;align-items:center;justify-content:center;padding:24px}
-.card{background:#fff;border-radius:28px;padding:32px 40px;box-shadow:0 12px 40px rgba(245,158,11,.25);text-align:center;min-width:280px}
-h1{margin:0 0 4px;font-size:22px;color:#b45309;cursor:pointer}
-.note{margin:0 0 20px;font-size:13px;color:#92400e}
-.score{font-size:56px;font-weight:800;color:#ea580c;margin:12px 0;cursor:pointer;user-select:none}
-.btn{display:inline-block;margin:6px;padding:14px 28px;border-radius:16px;font-size:16px;font-weight:700;border:none;background:#fdba74;color:#7c2d12;cursor:pointer;user-select:none}
-.badge{font-size:12px;color:#94a3b8;margin-top:16px}
-</style></head><body>
-<div class="card">
-  <h1 id="target-title">🎮 星际跑酷</h1>
-  <p class="note">页面做好了，但还没有交互</p>
-  <div class="score" id="target-score">0</div>
-  <div>分</div>
-  <div style="margin-top:16px"><button type="button" class="btn" id="target-add-btn">➕ 加 1 分</button></div>
-  <div class="badge">按钮目前点不动</div>
-</div>
-</body></html>`,
-  },
-  {
     id: 'stars',
     title: '数星星',
     emoji: '⭐',
@@ -160,6 +125,57 @@ h1{margin:0 0 8px;color:#365314;font-size:26px;cursor:pointer}
   <div style="color:#713f12;font-size:14px">有点渴了…</div>
   <button type="button" class="btn" id="target-water-btn">💧 浇水</button>
   <div class="badge">按钮暂时不会动</div>
+</div>
+</body></html>`,
+  },
+  {
+    id: 'score',
+    title: '星际跑酷',
+    emoji: '🚀',
+    desc: '飞船在赛道上前进，用左右按钮躲避陨石——但还不会产生任何反应。',
+    clickTargets: ['向左按钮 ⬅️', '向右按钮 ➡️', '飞船 🚀', '陨石 ☄️', '分数数字'],
+    resultOptions: [
+      '飞船向左移动，躲开陨石，分数 +10 并闪绿光',
+      '飞船向右移动，躲开陨石，弹出「好险！」',
+      '陨石被躲开时碎裂消失，分数数字弹跳变大',
+      '分数数字旁边冒出「+1」小动画',
+    ],
+    defaults: {
+      target: '向左按钮 ⬅️',
+      trigger: '单击',
+      result: '飞船向左移动，躲开陨石，分数 +10 并闪绿光',
+    },
+    html: `<!doctype html><html lang="zh"><head><meta charset="utf-8"><style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:system-ui,sans-serif;background:linear-gradient(180deg,#0f172a,#1e1b4b 50%,#312e81);display:flex;align-items:center;justify-content:center;padding:20px;color:#fff}
+.card{background:rgba(30,27,75,.92);border-radius:24px;padding:22px 24px;border:2px solid rgba(255,255,255,.12);text-align:center;min-width:280px;max-width:320px;box-shadow:0 12px 40px rgba(0,0,0,.35)}
+h1{margin:0 0 6px;font-size:22px;color:#fde68a;cursor:pointer}
+.note{margin:0 0 14px;font-size:12px;color:#a5b4fc}
+.score{font-size:40px;font-weight:800;color:#fbbf24;margin:0;line-height:1;cursor:pointer;user-select:none}
+.score-label{font-size:12px;color:#94a3b8;margin-bottom:12px}
+.track{position:relative;height:96px;background:linear-gradient(180deg,rgba(99,102,241,.2),rgba(15,23,42,.6));border-radius:16px;margin:10px 0 16px;border:1px dashed rgba(255,255,255,.2);overflow:hidden}
+.ship{font-size:44px;position:absolute;bottom:20px;left:42%;cursor:pointer;user-select:none;line-height:1}
+.meteor{font-size:30px;position:absolute;bottom:18px;right:16%;cursor:pointer;user-select:none}
+.lane{position:absolute;bottom:10px;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,#818cf8,transparent);opacity:.45}
+.btns{display:flex;gap:10px;justify-content:center}
+.btn{flex:1;padding:14px 0;border-radius:14px;font-size:22px;font-weight:700;border:none;cursor:pointer;user-select:none;background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;box-shadow:0 4px 12px rgba(99,102,241,.35)}
+.btn-right{background:linear-gradient(135deg,#8b5cf6,#7c3aed)}
+.badge{margin-top:14px;font-size:11px;color:#94a3b8;background:rgba(0,0,0,.25);padding:8px 12px;border-radius:12px;display:inline-block}
+</style></head><body>
+<div class="card">
+  <h1 id="target-title">🚀 星际跑酷</h1>
+  <p class="note">左右按钮躲避陨石，但还没有任何交互</p>
+  <div class="score" id="target-score">0</div>
+  <div class="score-label">分</div>
+  <div class="track">
+    <span class="ship" id="target-ship">🚀</span>
+    <span class="meteor" id="target-meteor">☄️</span>
+    <div class="lane"></div>
+  </div>
+  <div class="btns">
+    <button type="button" class="btn" id="target-left-btn">⬅️</button>
+    <button type="button" class="btn btn-right" id="target-right-btn">➡️</button>
+  </div>
+  <div class="badge">点左右按钮、飞船、陨石都还没有反应哦</div>
 </div>
 </body></html>`,
   },

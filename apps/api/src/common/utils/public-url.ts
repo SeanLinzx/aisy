@@ -14,3 +14,8 @@ export function courseHomeUrl(slug: string): string {
 export function growthUrl(slug: string): string {
   return `${webOrigin()}${webBasePath()}/g/${slug}`;
 }
+
+/** 已发布网页路径（含 WEB_BASE_PATH，用于服务端生成的 HTML / 素材 url） */
+export function publishPath(slug: string): string {
+  return `${webBasePath()}/p/${slug}`;
+}

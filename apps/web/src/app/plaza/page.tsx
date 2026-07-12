@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { publishPath } from '@/lib/public-url';
 
 interface PlazaItem {
   id: string;
@@ -38,7 +39,7 @@ export default async function Plaza() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-8">
             {items.map((it) => (
-              <a key={it.id} href={it.targetType === 'web_project' ? `/p/${it.targetId}` : '#'} className="kid-card hover:-translate-y-0.5 transition block">
+              <a key={it.id} href={it.targetType === 'web_project' ? publishPath(it.targetId) : '#'} className="kid-card hover:-translate-y-0.5 transition block">
                 {it.coverUrl && <img src={it.coverUrl} alt="" className="w-full h-40 object-cover rounded-2xl mb-3" />}
                 <div className="font-semibold text-slate-800">{it.title}</div>
                 {it.summary && <div className="text-sm text-slate-500 mt-1">{it.summary}</div>}

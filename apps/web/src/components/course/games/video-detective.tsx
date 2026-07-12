@@ -1,104 +1,185 @@
 'use client';
-import { useMemo, useState } from 'react';
-import { reportGrowth } from '@/lib/growth-report';
 
-interface Clip {
-  id: string;
-  title: string;
-  emoji: string;
-  bg: string;
-  isAI: boolean;
-  hint: string;
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
+import { reportGrowth } from '@/lib/growth-report';
+import {
+  VIDEO_RECOGNITION_QUESTIONS,
+  videoRecognitionScore,
+  type VideoRecognitionAnswerRecord,
+  type VideoRecognitionQuestion,
+} from '@/lib/video-recognition';
+
+type Answers = Record<string, VideoRecognitionAnswerRecord>;
+
+function QuestionCard({
+  question,
+  answer,
+  submitted,
+  onPick,
+}: {
+  question: VideoRecognitionQuestion;
+  answer: VideoRecognitionAnswerRecord | undefined;
+  submitted: boolean;
+  onPick: (optionId: string, optionLabel: string) => void;
+}) {
+  return (
+    <div className="kid-card space-y-3">
+      <div className="font-extrabold leading-snug">
+        <span className="text-xl mr-1.5">{question.emoji}</span>
+        {question.title}
+      </div>
+      <p className="text-xs text-ink-soft">👀 请看大屏幕上的视频，在下面选出你的答案：</p>
+      <div className={`grid gap-2 ${question.options.length > 2 ? 'sm:grid-cols-2' : ''}`}>
+        {question.options.map((opt) => {
+          const selected = answer?.optionId === opt.id;
+          const showResult = submitted;
+          const isCorrect = !!opt.correct;
+          let cls = 'border-orange-100 bg-white text-ink-soft hover:border-orange-200';
+          if (selected) cls = 'border-brand bg-orange-50 ring-2 ring-orange-200 font-bold text-ink';
+          if (showResult && selected && isCorrect) cls = 'border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 font-bold text-emerald-800';
+          if (showResult && selected && !isCorrect) cls = 'border-rose-300 bg-rose-50 ring-2 ring-rose-200 font-bold text-rose-700';
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => onPick(opt.id, opt.label)}
+              disabled={submitted}
+              className={`text-left rounded-xl border-2 px-3 py-2.5 text-sm leading-snug transition active:scale-[0.99] disabled:opacity-70 ${cls}`}
+            >
+              {selected && <span className="mr-1.5">✓</span>}
+              {opt.label}
+              {showResult && selected && (isCorrect ? ' ✅' : ' ❌')}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-// 视频占位符 + 选择题。后续可替换为真实视频 URL。
-const CLIPS: Clip[] = [
-  { id: 'c1', title: '会跳舞的小猫', emoji: '🐱', bg: 'from-pink-300 to-amber-200', isAI: true, hint: '小猫动作太流畅、毛发偶尔会“糊”，是 AI 生成的。' },
-  { id: 'c2', title: '小朋友过生日', emoji: '🎂', bg: 'from-sky-300 to-emerald-200', isAI: false, hint: '真实拍摄：手持镜头有轻微抖动，细节自然。' },
-  { id: 'c3', title: '宇航员在火星跳舞', emoji: '🧑‍🚀', bg: 'from-violet-300 to-rose-200', isAI: true, hint: '现实里没人能在火星拍视频，画面是 AI 想象的。' },
-  { id: 'c4', title: '老师上课', emoji: '👩‍🏫', bg: 'from-amber-200 to-orange-200', isAI: false, hint: '真实课堂录像，背景和光线很自然。' },
-  { id: 'c5', title: '龙在城市上空飞', emoji: '🐉', bg: 'from-slate-300 to-sky-200', isAI: true, hint: '龙是虚构的，这种画面只能由 AI 生成。' },
-  { id: 'c6', title: '操场上踢足球', emoji: '⚽', bg: 'from-emerald-300 to-lime-200', isAI: false, hint: '真实运动画面，人物动作和物理规律一致。' },
-];
-
 export function VideoDetectiveGame() {
-  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [answers, setAnswers] = useState<Answers>({});
   const [submitted, setSubmitted] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const answersRef = useRef<Answers>({});
+  answersRef.current = answers;
 
-  const score = useMemo(() => CLIPS.filter((c) => !!picked[c.id] === c.isAI).length, [picked, submitted]);
+  const report = useCallback(async (done: boolean) => {
+    const payload = Object.entries(answersRef.current).map(([questionId, a]) => ({
+      questionId,
+      optionId: a.optionId,
+      optionLabel: a.optionLabel,
+    }));
+    if (payload.length === 0) return;
+    try {
+      await api.post('/course/video-recognition/report', { answers: payload, done });
+    } catch {
+      /* 上报失败不打断答题 */
+    }
+  }, []);
 
-  function toggle(id: string) {
-    if (submitted) return;
-    setPicked((p) => ({ ...p, [id]: !p[id] }));
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (Object.keys(answers).length === 0) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => void report(submitted), 1500);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [answers, submitted, report]);
+
+  function setAnswer(questionId: string, patch: Partial<VideoRecognitionAnswerRecord>) {
+    setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], ...patch } }));
   }
+
+  async function submit() {
+    const missing = VIDEO_RECOGNITION_QUESTIONS.filter((q) => !answers[q.id]?.optionId);
+    if (missing.length > 0) {
+      setError(`还有 ${missing.length} 题没选答案：${missing.map((q) => q.emoji).join(' ')}`);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await report(true);
+      setSubmitted(true);
+      const score = videoRecognitionScore(answers);
+      reportGrowth({
+        kind: 'game',
+        gameSlug: 'video-detective',
+        title: 'AI 视频识别',
+        summary: `答对 ${score.correct}/${score.total} 题`,
+        detail: VIDEO_RECOGNITION_QUESTIONS.map((q) => ({
+          question: q.title,
+          answer: answers[q.id]?.optionLabel,
+        })),
+      });
+    } catch {
+      setError('提交失败，请再试一次');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const score = videoRecognitionScore(answers);
+  const answeredCount = VIDEO_RECOGNITION_QUESTIONS.filter((q) => answers[q.id]?.optionId).length;
 
   return (
     <div className="space-y-4">
       <div className="kid-card-sky">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🎞️ 当一回小侦探！下面有 6 段视频，<b>选出你认为是 AI 生成的</b>（被选中会发光），选好后点提交看看你的眼力。
+          🎞️ <strong>AI 视频识别</strong>：老师会在大屏幕上播放视频，你只需要在电脑上选答案。
+          每选一题都会同步给老师，共 <strong>{VIDEO_RECOGNITION_QUESTIONS.length} 道题</strong>。
         </p>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+          <span className="tag">已答 {answeredCount}/{VIDEO_RECOGNITION_QUESTIONS.length}</span>
+          {submitted && (
+            <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">
+              得分 {score.correct}/{score.total}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {CLIPS.map((c) => {
-          const chose = !!picked[c.id];
-          const right = submitted && chose === c.isAI;
-          const wrong = submitted && chose !== c.isAI;
-          return (
-            <button
-              key={c.id}
-              onClick={() => (submitted ? undefined : toggle(c.id))}
-              className={`text-left rounded-2xl border-2 overflow-hidden bg-white transition ${
-                chose ? 'border-sky-400 ring-4 ring-sky-200' : 'border-orange-100'
-              } ${right ? '!border-emerald-400 !ring-emerald-200' : ''} ${wrong ? '!border-rose-400 !ring-rose-200' : ''}`}
-            >
-              <div className={`relative aspect-video bg-gradient-to-br ${c.bg} flex items-center justify-center`}>
-                <span className="text-5xl">{c.emoji}</span>
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="w-12 h-12 rounded-full bg-black/35 text-white flex items-center justify-center text-xl">▶</span>
-                </span>
-                {submitted && (
-                  <span className={`absolute top-2 right-2 text-xs font-bold px-2 py-0.5 rounded-full ${c.isAI ? 'bg-violet-500 text-white' : 'bg-emerald-500 text-white'}`}>
-                    {c.isAI ? '🤖 AI' : '📹 真实'}
-                  </span>
-                )}
-              </div>
-              <div className="p-3">
-                <div className="font-bold text-sm">{c.title}</div>
-                <div className="text-xs text-ink-soft mt-0.5">{chose ? '我猜：AI 生成 🤖' : submitted ? '' : '点一下选择'}</div>
-                {submitted && <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">💡 {c.hint}</div>}
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      {VIDEO_RECOGNITION_QUESTIONS.map((q) => (
+        <QuestionCard
+          key={q.id}
+          question={q}
+          answer={answers[q.id]}
+          submitted={submitted}
+          onPick={(optionId, optionLabel) => setAnswer(q.id, { optionId, optionLabel })}
+        />
+      ))}
+
+      {error && (
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+      )}
 
       {!submitted ? (
-        <button
-          onClick={() => {
-            setSubmitted(true);
-            const correct = CLIPS.filter((c) => !!picked[c.id] === c.isAI).length;
-            reportGrowth({
-              kind: 'game',
-              gameSlug: 'video-detective',
-              title: 'AI 视频大侦探',
-              summary: `找出 AI 视频：答对 ${correct}/${CLIPS.length} 段`,
-              detail: CLIPS.map((c) => ({ title: c.title, isAI: c.isAI, guessedAI: !!picked[c.id] })),
-            });
-          }}
-          className="kid-button-primary"
-        >
-          ✅ 提交答案
+        <button onClick={() => void submit()} disabled={saving} className="kid-button-primary disabled:opacity-50">
+          {saving ? '提交中…' : '✅ 提交全部答案'}
         </button>
       ) : (
         <div className="space-y-3">
-          <div className={`kid-card ${score === CLIPS.length ? 'kid-card-mint' : 'kid-card-yellow'}`}>
+          <div className={`kid-card ${score.correct === score.total ? 'kid-card-mint' : 'kid-card-yellow'}`}>
             <div className="font-extrabold text-lg">
-              {score === CLIPS.length ? '🎉 全部答对！你是 AI 视频鉴定大师！' : `答对了 ${score}/${CLIPS.length} 段`}
+              {score.correct === score.total
+                ? '🎉 全部答对！你是 AI 视频识别小专家！'
+                : `答对了 ${score.correct}/${score.total} 题，继续加油！`}
             </div>
           </div>
-          <button onClick={() => { setSubmitted(false); setPicked({}); }} className="kid-button-ghost">🔄 再玩一次</button>
+          <button
+            onClick={() => {
+              setSubmitted(false);
+              setAnswers({});
+              setError(null);
+            }}
+            className="kid-button-ghost"
+          >
+            🔄 再答一次
+          </button>
         </div>
       )}
     </div>

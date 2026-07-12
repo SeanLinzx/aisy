@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
-import { VoiceInputButton } from '@/components/voice-input';
 import { PromptTemplates } from '@/components/prompt-templates';
 import { AiProgress } from '@/components/course/ai-progress';
 
@@ -27,7 +26,7 @@ export default function TextGenPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <ExploreToolHeader
         title="✍️ AI 写文字"
         desc="写下你想要 AI 写的内容，比如「写一个关于太空小狗的故事」。"
@@ -35,10 +34,7 @@ export default function TextGenPage() {
       <div className="kid-card space-y-4">
         <PromptTemplates category="text" onPick={(t) => setPrompt(t.prompt)} />
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-semibold">提示词 Prompt</label>
-            <VoiceInputButton onResult={(t) => setPrompt((p) => (p ? p + '\n' : '') + t)} />
-          </div>
+          <label className="text-sm font-semibold">提示词 Prompt</label>
           <textarea className="kid-textarea" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="例如：用 100 字写一个会变魔法的小猫的故事" />
         </div>
         <div>

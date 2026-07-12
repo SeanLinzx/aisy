@@ -9,7 +9,7 @@ export default function LessonPage() {
   if (!lesson) return notFound();
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <div className="flex items-center gap-2 text-xs text-ink-soft font-bold">
         <Link href="/student/course" className="hover:text-brand">📚 课程模式</Link>
         <span>›</span>
@@ -24,7 +24,7 @@ export default function LessonPage() {
         <p className="mt-2 font-semibold opacity-95 text-sm leading-relaxed">🎯 {lesson.goal}</p>
       </header>
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
         {lesson.games.map((g, i) => {
           const card = (
             <div className="kid-card h-full group hover:-translate-y-1 transition-all duration-200">
@@ -57,7 +57,7 @@ export default function LessonPage() {
             <span className="text-2xl">🛠️</span> 创作工具
             <span className="text-sm font-semibold text-ink-soft">（跟课也能直接生图 / 生视频）</span>
           </h2>
-          <div className="grid sm:grid-cols-2 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {lesson.tools.map((t, i) => (
               <Link
                 key={t.href}

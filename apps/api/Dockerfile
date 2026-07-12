@@ -33,7 +33,7 @@ ENV NODE_ENV=production
 ENV DATABASE_URL=file:/app/db/prod.db
 ENV DB_FILE=/app/db/prod.db
 
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
 RUN npm install -g prisma@5.22.0
 
 COPY --from=builder /prod/api ./

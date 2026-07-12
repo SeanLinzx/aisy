@@ -4,7 +4,7 @@ import { COURSE_LESSONS, THEME_GRADIENT } from '@/lib/course-config';
 
 export default function CourseOverview() {
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-8">
       <header className="relative overflow-hidden rounded-4xl p-6 md:p-8 bg-gradient-to-br from-sky-100 via-violet-50 to-pink-100 border-2 border-sky-100 shadow-pop-sm">
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <span className="absolute top-3 right-6 text-3xl animate-float-slow">🗺️</span>

@@ -2,7 +2,6 @@
 import { useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
 
@@ -40,7 +39,7 @@ export default function MixedPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <ExploreToolHeader title="🧠 图文理解 / 多模态" desc="上传一张图片，让 AI 看一看并回答你的问题。" />
 
       <div className="kid-card space-y-4">
@@ -59,10 +58,7 @@ export default function MixedPage() {
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-sm font-semibold">第二步：你想问什么？</label>
-            <VoiceInputButton onResult={(t) => setPrompt(t)} />
-          </div>
+          <label className="text-sm font-semibold">第二步：你想问什么？</label>
           <textarea className="kid-textarea" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
         </div>
 

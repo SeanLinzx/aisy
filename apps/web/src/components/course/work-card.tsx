@@ -1,7 +1,6 @@
 'use client';
 import { useState } from 'react';
 import { api } from '@/lib/api';
-import { VoiceInputButton } from '@/components/voice-input';
 
 export interface WorkCardField {
   key: string;
@@ -17,7 +16,7 @@ const DEFAULT_FIELDS: WorkCardField[] = [
 ];
 
 /**
- * 作品卡：引导式输入框 + 语音输入，保存为 text 素材。
+ * 作品卡：引导式输入框，保存为 text 素材。
  */
 export function WorkCard({
   fields = DEFAULT_FIELDS,
@@ -62,12 +61,9 @@ export function WorkCard({
     <div className="space-y-4">
       {fields.map((f) => (
         <div key={f.key} className="kid-card !p-4 space-y-2">
-          <div className="flex items-center justify-between">
-            <label className="text-sm font-bold flex items-center gap-1.5">
-              <span className="text-lg">{f.emoji}</span> {f.label}
-            </label>
-            <VoiceInputButton onResult={(t) => setField(f.key, (values[f.key] ? values[f.key] + ' ' : '') + t)} />
-          </div>
+          <label className="text-sm font-bold flex items-center gap-1.5">
+            <span className="text-lg">{f.emoji}</span> {f.label}
+          </label>
           <textarea
             className="kid-textarea !min-h-[80px]"
             value={values[f.key] || ''}

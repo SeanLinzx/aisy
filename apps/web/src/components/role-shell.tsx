@@ -344,7 +344,7 @@ export function RoleShell({
           </div>
         </nav>
 
-        <main className={cn('flex-1 p-5 md:p-8 lg:p-10', (autoCollapseSidebar || navLocked) && 'pb-24')}>{children}</main>
+        <main className={cn('flex-1 w-full min-w-0 p-5 md:p-8 lg:p-10', (autoCollapseSidebar || navLocked) && 'pb-24')}>{children}</main>
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 import { api } from '@/lib/api';
 import { persistWebAsset } from '@/lib/persist-web-asset';
-import { splitInlineWebParts } from '@/lib/merge-web-html';
+import { splitInlineWebParts, mergeWebHtml } from '@/lib/merge-web-html';
 import type { ChoiceQuestionSpec } from '@/components/course/choice-question';
+import { MEMORY_MATCH_STARTER_HTML } from './memory-match-starter';
 
 export { mergeWebHtml } from '@/lib/merge-web-html';
 
@@ -315,11 +316,18 @@ export function buildMemoryMatchPrompt(form: MemoryMatchForm): string {
 4. 只输出 HTML 代码本身，不要使用 Markdown 代码块包裹。`;
 }
 
-export function buildMemoryMatchIterationPrompt(html: string, instruction: string): string {
+export function buildMemoryMatchIterationPrompt(html: string, instruction: string, blocksContext = ''): string {
+  const blockSection = blocksContext
+    ? `【小朋友点选的具体部分，请重点参考、优先修改这里（及其直接相关的样式/结构），尽量不要改动页面其他区域】
+${blocksContext}
+
+`
+    : '';
+
   return `这是我当前的「${MEMORY_MATCH_TITLE}」翻牌配对游戏 HTML：
 ${html}
 
-【小朋友的修改意见】
+${blockSection}【小朋友的修改意见】
 ${instruction.trim()}
 
 要求：
@@ -327,8 +335,9 @@ ${instruction.trim()}
    - 游戏名称「${MEMORY_MATCH_TITLE}」和副标题「${MEMORY_MATCH_SUBTITLE}」
    - 三关命名「见习侦探 / 线索侦探 / 王牌侦探」（各关张数、翻牌次数限制、时间限制如果修改意见里提到就按新的来，没提到就保持原样）
    - 结算页标题「${MEMORY_MATCH_LEADERBOARD_TITLE}」，以及翻牌次数与用时统计、排名规则说明
-2. 输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。
-3. 只输出 HTML 代码，不要 Markdown 代码块。`;
+2. 如果上面给出了「点选的具体部分」，尽量只调整这些部分及其直接相关的样式/结构。
+3. 输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。
+4. 只输出 HTML 代码，不要 Markdown 代码块。`;
 }
 
 export async function persistMemoryMatch(params: {
@@ -336,8 +345,9 @@ export async function persistMemoryMatch(params: {
   form: MemoryMatchForm;
   projectId: string | null;
   assetId: string | null;
+  isStarter?: boolean;
 }): Promise<{ projectId: string; slug: string; url: string; assetId: string }> {
-  const { htmlContent, form, projectId, assetId } = params;
+  const { htmlContent, form, projectId, assetId, isStarter = false } = params;
   const parts = splitInlineWebParts(htmlContent);
   const summary = buildMemoryMatchSummary(form);
   return persistWebAsset({
@@ -350,7 +360,7 @@ export async function persistMemoryMatch(params: {
     description: MEMORY_MATCH_DESC,
     projectId,
     assetId,
-    meta: { kind: 'memory-match', sourceGame: 'memory-match', ...form },
+    meta: { kind: 'memory-match', sourceGame: 'memory-match', isStarter, ...form },
   });
 }
 
@@ -368,12 +378,42 @@ export async function loadMemoryMatchState() {
     slug = null;
   }
 
+  // asset.content 理论上已经是合并好 css/js 的完整 HTML，但历史数据可能只存了片段，
+  // 这里优先从 web-projects 版本记录里重新合并一份最新的，保证预览一定带样式和脚本。
+  let html = asset?.content || '';
+  if (projectId) {
+    try {
+      const projectRes = await api.get(`/web-projects/${projectId}`);
+      const latest = projectRes.data?.versions?.[0];
+      if (latest?.html) {
+        html = mergeWebHtml({ html: latest.html, css: latest.css, js: latest.js });
+      }
+    } catch {
+      // 拉取失败时，回退用 asset.content
+    }
+  }
+
   return {
     assetId: asset?.id ?? null,
     projectId,
     slug,
-    html: asset?.content || '',
+    html,
     form: asset ? formFromMeta(meta) : DEFAULT_FORM,
-    hasSaved: !!asset?.content,
+    hasSaved: !!html,
   };
+}
+
+/** 首次进入且尚无保存版本时，自动写入内置初始版，便于直接进入「小游戏优化」 */
+export async function ensureMemoryMatchStarter() {
+  const state = await loadMemoryMatchState();
+  if (state.hasSaved) return state;
+
+  await persistMemoryMatch({
+    htmlContent: MEMORY_MATCH_STARTER_HTML,
+    form: DEFAULT_FORM,
+    projectId: null,
+    assetId: null,
+    isStarter: true,
+  });
+  return loadMemoryMatchState();
 }

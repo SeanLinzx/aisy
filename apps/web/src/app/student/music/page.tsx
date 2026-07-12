@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
-import { VoiceInputButton } from '@/components/voice-input';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
 
@@ -104,7 +103,7 @@ export default function MusicPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6">
       <ExploreToolHeader
         title="🎵 AI 作曲"
         desc="输入歌词，调整曲风、情绪、演唱、音色和时长，让豆包为你生成一段专属音乐。"
@@ -114,16 +113,13 @@ export default function MusicPage() {
         <div>
           <div className="flex items-center justify-between mb-2">
             <label className="text-sm font-semibold">歌词（必填）</label>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setLyrics(DEFAULT_LYRICS)}
-                className="text-xs font-bold text-brand-dark/70 hover:text-brand"
-              >
-                恢复案例模板
-              </button>
-              <VoiceInputButton onResult={(t) => setLyrics((p) => (p ? `${p}\n${t}` : t))} />
-            </div>
+            <button
+              type="button"
+              onClick={() => setLyrics(DEFAULT_LYRICS)}
+              className="text-xs font-bold text-brand-dark/70 hover:text-brand"
+            >
+              恢复案例模板
+            </button>
           </div>
           <textarea
             className="kid-textarea min-h-[140px]"

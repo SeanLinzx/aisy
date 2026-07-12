@@ -37,9 +37,13 @@ export function buildWorksLessonGroups(): WorksLessonGroup[] {
   if (lesson3) {
     const g = map.get('lesson3');
     if (g) {
+      const quiz = lesson3.games.find((x) => x.slug === 'video-detective');
+      if (quiz && !g.games.some((x) => x.slug === quiz.slug)) {
+        g.games.unshift(quiz);
+      }
       g.videoBundle = {
-        slugs: [...VIDEO_CREATION_GAMES],
-        label: 'AI 生视频（全部）',
+        slugs: ['frame-video', 'video-studio', 'video-free'],
+        label: '自由生视频 & 关键帧生视频',
       };
     }
   }
@@ -71,6 +75,9 @@ export function resolveDefaultWorksSelection(
 ): { lessonSlug: string; gameKey: string } {
   if (currentGame === 'detective-summary') {
     return { lessonSlug: 'lesson5', gameKey: 'detective-summary' };
+  }
+  if (currentGame === 'video-detective') {
+    return { lessonSlug: 'lesson3', gameKey: 'video-detective' };
   }
 
   if (currentGame) {

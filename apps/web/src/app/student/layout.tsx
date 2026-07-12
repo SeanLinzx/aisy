@@ -16,8 +16,6 @@ const nav = [
   },
   { href: '/student/assets', label: '我的素材库', emoji: '📦' },
   { href: '/student/projects', label: '我的网页', emoji: '💻' },
-  { href: '/student/tasks', label: '课程任务', emoji: '📋' },
-  { href: '/student/homepage', label: '我的主页', emoji: '🌟' },
   { href: '/student/settings', label: '我的设置', emoji: '⚙️' },
 ];
 
@@ -35,7 +33,7 @@ export default async function StudentLayout({ children }: { children: React.Reac
   if (me.role !== 'student') redirect('/forbidden');
   return (
     <StudentAppShell user={me} navItems={isPadMode() ? padNav : nav} meId={me.id}>
-      {children}
+      <div className="page-container">{children}</div>
     </StudentAppShell>
   );
 }

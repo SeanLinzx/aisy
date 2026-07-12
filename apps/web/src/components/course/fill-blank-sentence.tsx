@@ -1,6 +1,5 @@
 'use client';
 import { useState } from 'react';
-import { VoiceInputButton } from '@/components/voice-input';
 
 export interface FillBlankSpec {
   /** 对应 values / onChange 里的字段名 */
@@ -11,6 +10,8 @@ export interface FillBlankSpec {
   quickOptions?: string[];
   /** select = 只能从 quickOptions 里选（下拉填空）；默认 text 可自由输入 */
   input?: 'text' | 'select';
+  /** form 布局下使用多行输入框，方便写更长的描述 */
+  multiline?: boolean;
 }
 
 interface FillBlankSentenceProps {
@@ -19,8 +20,8 @@ interface FillBlankSentenceProps {
   blanks: FillBlankSpec[];
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
-  /** 是否显示语音填空按钮（语音结果会填进当前聚焦的空，默认聚焦第一个空） */
-  voice?: boolean;
+  /** inline = 句中填空；form = 每行独立输入框，更适合自由发挥 */
+  layout?: 'inline' | 'form';
 }
 
 /** 把 segments/blanks/values 拼成一句完整的话，空着的部分用占位提示代替（用于摘要/prompt） */
@@ -38,8 +39,7 @@ export function renderFilledSentence(segments: string[], blanks: FillBlankSpec[]
  */
 const ADD_CUSTOM_VALUE = '__add_custom_option__';
 
-export function FillBlankSentence({ segments, blanks, values, onChange, voice = true }: FillBlankSentenceProps) {
-  const [focusedKey, setFocusedKey] = useState<string | null>(null);
+export function FillBlankSentence({ segments, blanks, values, onChange, layout = 'inline' }: FillBlankSentenceProps) {
   const [customOptions, setCustomOptions] = useState<Record<string, string[]>>({});
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -59,6 +59,70 @@ export function FillBlankSentence({ segments, blanks, values, onChange, voice = 
       return { ...prev, [key]: [...list, text] };
     });
     onChange(key, text);
+  }
+
+  function QuickOptionChips({ blank }: { blank: FillBlankSpec }) {
+    if (!blank.quickOptions?.length) return null;
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px] text-ink-soft shrink-0">💡 没想好？点一下参考：</span>
+        {blank.quickOptions.map((opt) => {
+          const selected = values[blank.key] === opt;
+          return (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onChange(blank.key, opt)}
+              className={`kid-button-sm border-2 ${
+                selected
+                  ? 'bg-brand text-white border-brand'
+                  : 'bg-white text-ink-soft border-orange-200 hover:border-orange-300'
+              }`}
+            >
+              {selected && '✓ '}
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (layout === 'form') {
+    const preview = renderFilledSentence(segments, blanks, values);
+    return (
+      <div className="space-y-4">
+        {blanks.map((blank) => (
+          <div key={blank.key} className="space-y-2">
+            <label htmlFor={`blank-${blank.key}`} className="text-xs font-bold text-ink block">
+              ✏️ {blank.placeholder}
+            </label>
+            {blank.multiline ? (
+              <textarea
+                id={`blank-${blank.key}`}
+                className="kid-textarea !min-h-[72px] w-full text-sm leading-relaxed"
+                value={values[blank.key] || ''}
+                placeholder={`在这里写下${blank.placeholder}…`}
+                onChange={(e) => onChange(blank.key, e.target.value)}
+              />
+            ) : (
+              <input
+                id={`blank-${blank.key}`}
+                className="kid-input w-full !py-2.5 text-sm font-semibold"
+                value={values[blank.key] || ''}
+                placeholder={`在这里写下${blank.placeholder}…`}
+                onChange={(e) => onChange(blank.key, e.target.value)}
+              />
+            )}
+            <QuickOptionChips blank={blank} />
+          </div>
+        ))}
+        <div className="rounded-xl bg-white/70 border-2 border-orange-100 px-3 py-3">
+          <div className="text-[11px] font-bold text-ink-soft mb-1">📋 拼成的话</div>
+          <p className="text-sm text-ink leading-relaxed break-words whitespace-normal">{preview}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -111,7 +175,6 @@ export function FillBlankSentence({ segments, blanks, values, onChange, voice = 
                     <select
                       className="inline-block mx-1 align-baseline rounded-lg border-b-[3px] border-dashed border-brand/60 bg-orange-50/70 px-2 py-1 text-center font-bold text-ink focus:outline-none focus:border-brand focus:bg-orange-50 transition max-w-[min(100%,14rem)]"
                       value={values[blank.key] || ''}
-                      onFocus={() => setFocusedKey(blank.key)}
                       onChange={(e) => {
                         if (e.target.value === ADD_CUSTOM_VALUE) {
                           setAddingKey(blank.key);
@@ -136,7 +199,6 @@ export function FillBlankSentence({ segments, blanks, values, onChange, voice = 
                     style={{ width: `${Math.max(values[blank.key]?.length || 0, blank.placeholder.length, 4) + 2}ch` }}
                     value={values[blank.key] || ''}
                     placeholder={blank.placeholder}
-                    onFocus={() => setFocusedKey(blank.key)}
                     onChange={(e) => onChange(blank.key, e.target.value)}
                   />
                 )
@@ -152,40 +214,10 @@ export function FillBlankSentence({ segments, blanks, values, onChange, voice = 
             (b) =>
               !!b.quickOptions?.length &&
               b.input !== 'select' && (
-                <div key={b.key} className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-ink-soft">💡 {b.placeholder}：</span>
-                  {b.quickOptions.map((opt) => {
-                    const selected = values[b.key] === opt;
-                    return (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => onChange(b.key, opt)}
-                        className={`kid-button-sm border-2 ${
-                          selected
-                            ? 'bg-brand text-white border-brand'
-                            : 'bg-white text-ink-soft border-orange-200 hover:border-orange-300'
-                        }`}
-                      >
-                        {selected && '✓ '}
-                        {opt}
-                      </button>
-                    );
-                  })}
-                </div>
+                <QuickOptionChips key={b.key} blank={b} />
               ),
           )}
         </div>
-      )}
-
-      {voice && (
-        <VoiceInputButton
-          onResult={(t) => {
-            const key = focusedKey || blanks[0]?.key;
-            if (!key) return;
-            onChange(key, ((values[key] ? values[key] + ' ' : '') + t).trim());
-          }}
-        />
       )}
     </div>
   );

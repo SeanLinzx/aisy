@@ -5,7 +5,7 @@ import { deckUrl, LESSON1_DETECTIVE_DECK } from '@/lib/course-deck';
 /** 第一节课 · AI 小侦探互动课件（自主浏览，不跟课） */
 export default function Lesson1DeckPage() {
   return (
-    <div className="space-y-4 max-w-6xl mx-auto">
+    <div className="space-y-4">
       <div className="flex items-center gap-2 text-xs text-ink-soft font-bold">
         <Link href="/student/course" className="hover:text-brand">📚 课程模式</Link>
         <span>›</span>

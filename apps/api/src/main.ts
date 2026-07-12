@@ -29,6 +29,14 @@ async function bootstrap() {
   app.useBodyParser('json', { limit: '20mb' });
   app.useBodyParser('urlencoded', { extended: true, limit: '20mb' });
   app.use(cookieParser());
+  // Windows / Edge 对 mp4 预览更依赖正确的 MIME 与 Range 支持
+  app.use('/uploads', (req, res, next) => {
+    if (/\.mp4(?:\?|$)/i.test(req.url || '')) {
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Accept-Ranges', 'bytes');
+    }
+    next();
+  });
   app.enableShutdownHooks();
   app.enableCors({
     origin: [...new Set([...webOrigins, 'http://localhost:3000'])],

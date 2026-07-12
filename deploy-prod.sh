@@ -17,9 +17,9 @@ if [[ -n "${SSHPASS:-}" ]]; then
     echo "错误: 设置了 SSHPASS 但未安装 sshpass（brew install sshpass）" >&2
     exit 1
   fi
-  SSH_WRAP=(sshpass -e ssh -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
-  RSYNC_SSH="sshpass -e ssh -p $SSH_PORT -o StrictHostKeyChecking=accept-new"
-  SCP_WRAP=(sshpass -e scp -P "$SSH_PORT" -o StrictHostKeyChecking=accept-new)
+  SSH_WRAP=(sshpass -e ssh -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no)
+  RSYNC_SSH="sshpass -e ssh -p $SSH_PORT -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no"
+  SCP_WRAP=(sshpass -e scp -P "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no)
 else
   SSH_WRAP=(ssh -p "$SSH_PORT")
   RSYNC_SSH="ssh -p $SSH_PORT"

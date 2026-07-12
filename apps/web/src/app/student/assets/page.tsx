@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { api } from '@/lib/api';
+import { api, apiDownloadHref } from '@/lib/api';
 import {
   ASSET_TABS,
   assetDisplayType,
@@ -10,6 +10,7 @@ import {
   isInteractiveWebAsset,
   parseAssetMeta,
   TAB_CREATE_LINK,
+  webAssetEditorHref,
   type AssetTabKey,
 } from '@/lib/asset-tabs';
 import { resolveUploadPath } from '@/lib/upload-url';
@@ -111,6 +112,7 @@ export default function AssetsPage() {
           const isPromptPair = meta?.kind === 'prompt-pair';
           const hidden = isHiddenInLibrary(a);
           const openUrl = isWeb && a.url ? a.url : null;
+          const editorHref = webAssetEditorHref(a);
           const thumbSrc = a.thumbnailUrl || a.url;
           const thumb =
             thumbSrc && (a.type === 'image' || a.type === 'poster' || a.type === 'video' || isDecorate || isSession)
@@ -163,10 +165,23 @@ export default function AssetsPage() {
                 <p className="text-xs text-slate-500 mt-2 line-clamp-3 whitespace-pre-wrap">{a.content}</p>
               )}
               <div className="mt-3 flex justify-end gap-3 text-xs flex-wrap">
-                {openUrl && (
-                  <Link href={openUrl} target="_blank" className="text-brand font-bold">
-                    🌐 打开{isSession ? '创作页' : '网页'}
-                  </Link>
+                {editorHref ? (
+                  <>
+                    <Link href={editorHref} className="text-brand font-bold">
+                      ✏️ 打开编辑
+                    </Link>
+                    {openUrl && (
+                      <Link href={openUrl} target="_blank" className="text-slate-500 font-bold">
+                        🔗 公开链接
+                      </Link>
+                    )}
+                  </>
+                ) : (
+                  openUrl && (
+                    <Link href={openUrl} target="_blank" className="text-brand font-bold">
+                      🌐 打开{isSession ? '创作页' : '网页'}
+                    </Link>
+                  )
                 )}
                 {isWeb && !isFeaturedWeb && (
                   <button type="button" onClick={() => setAsHomepage(a.id)} className="text-emerald-600 font-bold">
@@ -174,12 +189,12 @@ export default function AssetsPage() {
                   </button>
                 )}
                 {a.type === 'ppt' && (
-                  <a href={`/api/exports/ppt/${a.id}.pptx`} className="text-brand">
+                  <a href={apiDownloadHref(`/exports/ppt/${a.id}.pptx`)} className="text-brand">
                     ⬇ .pptx
                   </a>
                 )}
                 {(a.type === 'poster' || a.type === 'image') && (
-                  <a href={`/api/exports/poster/${a.id}.pdf`} className="text-brand">
+                  <a href={apiDownloadHref(`/exports/poster/${a.id}.pdf`)} className="text-brand">
                     ⬇ .pdf
                   </a>
                 )}

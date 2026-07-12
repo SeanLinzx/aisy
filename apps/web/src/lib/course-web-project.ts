@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import { publishPath } from '@/lib/public-url';
 
 /** 课程里生成的 HTML 网页：写入「我的网页」并发布可访问链接 */
 export async function persistCourseWebProject(opts: {
@@ -47,5 +48,5 @@ export async function persistCourseWebProject(opts: {
     }
   }
 
-  return { projectId: pid, slug, url: `/p/${slug}` };
+  return { projectId: pid, slug, url: publishPath(slug) };
 }
