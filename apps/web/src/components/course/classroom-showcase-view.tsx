@@ -63,14 +63,14 @@ export function ClassroomShowcaseView({
             </div>
           )}
           <div>
-            <div className={compact ? 'font-extrabold text-sm' : 'font-extrabold text-lg'}>{showcase.displayName}</div>
-            <div className={compact ? 'text-[11px] text-ink-soft font-semibold' : 'text-sm text-ink-soft font-semibold'}>
+            <div className={compact ? 'font-extrabold text-base sm:text-lg' : 'font-extrabold text-lg'}>{showcase.displayName}</div>
+            <div className={compact ? 'text-xs sm:text-sm text-ink-soft font-semibold' : 'text-sm text-ink-soft font-semibold'}>
               {showcase.title || showcase.gameTitle || '优秀作品'}
             </div>
           </div>
         </div>
 
-        <div className={compact ? '[&_video]:max-h-[28vh] [&_img]:max-h-[28vh]' : undefined}>
+        <div className={compact ? '[&_video]:max-h-[52vh] [&_img]:max-h-[52vh]' : undefined}>
           <ShowcaseMedia showcase={showcase} />
         </div>
 
@@ -88,7 +88,7 @@ export function ClassroomShowcaseView({
         {showcase.prompt && (
           <div className={compact ? 'rounded-xl bg-white border border-orange-100 px-3 py-2' : 'rounded-2xl bg-white border-2 border-orange-100 px-4 py-3'}>
             <div className="text-[10px] font-bold text-ink-soft mb-1">💡 创作提示词</div>
-            <p className={compact ? 'text-[11px] leading-relaxed line-clamp-4' : 'text-sm leading-relaxed'}>{showcase.prompt}</p>
+            <p className={compact ? 'text-xs sm:text-sm leading-relaxed line-clamp-6' : 'text-sm leading-relaxed'}>{showcase.prompt}</p>
           </div>
         )}
 

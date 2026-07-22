@@ -24,6 +24,7 @@ export function GameConsoleCard({
   disabled,
   footnote,
   compact,
+  onExpand,
   children,
 }: {
   game: CourseGame;
@@ -34,6 +35,7 @@ export function GameConsoleCard({
   disabled?: boolean;
   footnote?: string;
   compact?: boolean;
+  onExpand?: () => void;
   children?: ReactNode;
 }) {
   const isPlaceholder = game.status === 'placeholder';
@@ -48,20 +50,33 @@ export function GameConsoleCard({
         : 'kid-button-primary',
   );
 
-  if (compact && !current) {
+  if (compact) {
     return (
       <div
         id={`game-${game.slug}`}
         className={cn(
           'flex items-center justify-between gap-2 rounded-xl border-2 px-3 py-2',
-          isStandby ? 'border-violet-200 bg-violet-50/40' : 'border-orange-100 bg-white',
+          current
+            ? 'border-emerald-300 bg-emerald-50/60'
+            : isStandby
+              ? 'border-violet-200 bg-violet-50/40'
+              : 'border-orange-100 bg-white',
         )}
         style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}
       >
-        <div className="min-w-0 flex items-center gap-2 text-sm font-bold truncate">
+        <button
+          type="button"
+          onClick={onExpand}
+          className="min-w-0 flex flex-1 items-center gap-2 text-sm font-bold truncate text-left hover:text-brand transition"
+        >
           <span>{game.emoji}</span>
           <span className="truncate">{game.title}</span>
-        </div>
+          {current && (
+            <span className="text-[10px] font-bold text-emerald-600 bg-white border border-emerald-200 rounded-full px-1.5 py-0.5 shrink-0">
+              live
+            </span>
+          )}
+        </button>
         <button type="button" onClick={onPush} disabled={busy || disabled || isPlaceholder} className={pushClass}>
           {pushLabel}
         </button>

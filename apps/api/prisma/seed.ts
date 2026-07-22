@@ -15,8 +15,8 @@ async function main() {
   }) {
     return prisma.user.upsert({
       where: { username: input.username },
-      create: { ...input, passwordHash },
-      update: { displayName: input.displayName, role: input.role },
+      create: { ...input, passwordHash, passwordPlain: '123456' },
+      update: { displayName: input.displayName, role: input.role, passwordPlain: '123456' },
     });
   }
 
@@ -129,17 +129,19 @@ async function main() {
     update: { status: 'active' },
   });
   const arkModels = [
-    { code: 'doubao-seed-2-0-pro-260215', displayName: '豆包多模态 Pro', capability: 'multimodal' as const, cost: 2 },
-    { code: 'doubao-seedance-2-0-mini-260615', displayName: '豆包 Seedance 2.0 Mini 视频', capability: 'video' as const, cost: 8 },
-    { code: 'doubao-seedance-2-0-260128', displayName: '豆包 Seedance 视频', capability: 'video' as const, cost: 8 },
-    { code: 'doubao-seedream-5-0-260128', displayName: '豆包 Seedream 5.0 文生图', capability: 'image' as const, cost: 3 },
-    { code: 'doubao-seedream-3-0-t2i-250415', displayName: '豆包 Seedream 3.0 文生图（旧）', capability: 'image' as const, cost: 3 },
+    { code: 'doubao-seed-2-1-pro-260628', displayName: '豆包 2.1 Pro（多模态/网页）', capability: 'multimodal' as const, cost: 2, enabled: true },
+    { code: 'doubao-seed-2-0-pro-260215', displayName: '豆包多模态 Pro 2.0', capability: 'multimodal' as const, cost: 2, enabled: true },
+    { code: 'doubao-seed-evolving', displayName: '豆包 Seed Evolving（长上下文）', capability: 'multimodal' as const, cost: 3, enabled: false },
+    { code: 'doubao-seedance-2-0-mini-260615', displayName: '豆包 Seedance 2.0 Mini 视频', capability: 'video' as const, cost: 8, enabled: true },
+    { code: 'doubao-seedance-2-0-260128', displayName: '豆包 Seedance 视频（旧）', capability: 'video' as const, cost: 8, enabled: false },
+    { code: 'doubao-seedream-5-0-260128', displayName: '豆包 Seedream 5.0 文生图', capability: 'image' as const, cost: 3, enabled: true },
+    { code: 'doubao-seedream-3-0-t2i-250415', displayName: '豆包 Seedream 3.0 文生图（旧）', capability: 'image' as const, cost: 3, enabled: true },
   ];
   for (const m of arkModels) {
     await prisma.aiModel.upsert({
       where: { providerId_code: { providerId: providerArk.id, code: m.code } },
-      create: { providerId: providerArk.id, code: m.code, displayName: m.displayName, capability: m.capability, cost: m.cost },
-      update: { displayName: m.displayName, capability: m.capability },
+      create: { providerId: providerArk.id, code: m.code, displayName: m.displayName, capability: m.capability, cost: m.cost, enabled: m.enabled },
+      update: { displayName: m.displayName, capability: m.capability, enabled: m.enabled },
     });
   }
   // mock models
@@ -173,7 +175,7 @@ async function main() {
   }
 
   // ---- Sensitive words ----
-  const baseWords = ['色情', '暴力', '血腥', '毒品', '赌博', '诈骗'];
+  const baseWords = ['色情', '暴力', '血腥', '毒品', '赌博', '诈骗', '吃人', '恐怖', '惊悚', '杀人', '僵尸', '恶魔', '自杀', '自残'];
   for (const w of baseWords) {
     await prisma.sensitiveWord.upsert({
       where: { word: w },

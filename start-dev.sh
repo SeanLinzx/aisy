@@ -15,6 +15,26 @@ ok()    { echo "${GREEN}[ok]${NC} $*"; }
 warn()  { echo "${YELLOW}[warn]${NC} $*"; }
 fail()  { echo "${RED}[fail]${NC} $*"; exit 1; }
 
+free_port() {
+  local port="$1"
+  local label="${2:-port $port}"
+  local pids
+  pids="$(lsof -ti ":$port" 2>/dev/null || true)"
+  if [ -z "$pids" ]; then
+    return 0
+  fi
+  warn "$label is in use (PID: $pids). Stopping previous process..."
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  sleep 1
+  pids="$(lsof -ti ":$port" 2>/dev/null || true)"
+  if [ -n "$pids" ]; then
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+  fi
+  ok "Freed $label."
+}
+
 log "Checking runtime dependencies..."
 command -v node >/dev/null 2>&1 || fail "Node.js is not installed. Please install Node 18.18+."
 command -v pnpm >/dev/null 2>&1 || {
@@ -91,6 +111,9 @@ pnpm --filter @ai-camp/api db:seed || warn "Seed script reported an issue (conti
 ok "Database ready."
 
 # --- Launch dev servers ---
+free_port "${API_PORT:-3001}" "API port ${API_PORT:-3001}"
+free_port "${WEB_PORT:-3000}" "Web port ${WEB_PORT:-3000}"
+
 log "Launching API (http://localhost:${API_PORT:-3001}) and Web (http://localhost:${WEB_PORT:-3000})..."
 echo
 echo "${GREEN}=====================================${NC}"

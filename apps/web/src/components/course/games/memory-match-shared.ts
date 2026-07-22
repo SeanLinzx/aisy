@@ -1,8 +1,12 @@
 import { api } from '@/lib/api';
+import { fetchAssetContent, fetchAssetsList } from '@/lib/assets-cache';
 import { persistWebAsset } from '@/lib/persist-web-asset';
 import { splitInlineWebParts, mergeWebHtml } from '@/lib/merge-web-html';
+import { loadWebProjectHead } from '@/lib/web-project-head';
 import type { ChoiceQuestionSpec } from '@/components/course/choice-question';
-import { MEMORY_MATCH_STARTER_HTML } from './memory-match-starter';
+import { MEMORY_MATCH_STARTER_HTML, MEMORY_MATCH_STARTER_VERSION } from './memory-match-starter';
+import { WEB_ITERATION_DELTA_RULES } from '@/lib/web-iteration-prompt';
+import { prepareIterationSourceForPrompt } from '@/lib/web-iteration-base';
 
 export { mergeWebHtml } from '@/lib/merge-web-html';
 
@@ -296,7 +300,8 @@ export function buildMemoryMatchPrompt(form: MemoryMatchForm): string {
 3. 每关规则：
    - 所有卡片初始背面朝上，统一显示${form.layoutTheme}；玩家${form.interactionFlip.includes('双击') ? '双击' : '单击'}卡片将其翻开，露出正面的线索 emoji。
    - 一次最多同时翻开 2 张未配对的卡片；若 emoji 相同则配对成功（${form.interactionFeedback}），两张卡片保持翻开状态且不可再点击；若不同，短暂展示后（约 0.8 秒）自动翻回背面，其间禁止再点其他卡片，避免手速太快导致判断出错。
-   - 翻开卡片要用 CSS 实现翻牌动画效果（例如 3D 翻转 transform）。
+   - 翻开卡片必须露出「背面/正面」两面中的另一面，禁止用 scaleX(-1) 镜像当作翻牌；配对成功后两张牌保持正面朝上、图案方向正常（不能左右颠倒）。
+   - 推荐用「卡背 opacity 隐藏 + 卡面 opacity 显示」或标准 rotateY + backface-visibility 实现翻牌动画。
    - 页面顶部状态栏要实时显示：当前关卡名称、⏱️用时（若有时间限制，用倒计时展示）、翻牌次数（若有次数目标，展示「已翻 x / 目标 y」）、配对进度。
    - 记录本关「翻牌次数」（每翻开一张算 1 次）和「用时」（从本关第一次翻牌开始计时，到全部配对完成为止，单位秒，精确到 0.1 秒）。
    - 若设置了翻牌次数限制或时间限制且被超出，按上面【关卡设置】里描述的方式温和提示，并提供「重新挑战本关」按钮，不要粗暴弹窗或强制跳走。
@@ -317,6 +322,7 @@ export function buildMemoryMatchPrompt(form: MemoryMatchForm): string {
 }
 
 export function buildMemoryMatchIterationPrompt(html: string, instruction: string, blocksContext = ''): string {
+  const source = prepareIterationSourceForPrompt(html);
   const blockSection = blocksContext
     ? `【小朋友点选的具体部分，请重点参考、优先修改这里（及其直接相关的样式/结构），尽量不要改动页面其他区域】
 ${blocksContext}
@@ -324,20 +330,22 @@ ${blocksContext}
 `
     : '';
 
-  return `这是我当前的「${MEMORY_MATCH_TITLE}」翻牌配对游戏 HTML：
-${html}
+  return `【上一版本完整 HTML 源码】（${MEMORY_MATCH_TITLE}，共约 ${source.length} 字符 — 必须作为唯一基础做增量修改）
+${source}
 
 ${blockSection}【小朋友的修改意见】
 ${instruction.trim()}
 
 要求：
+${WEB_ITERATION_DELTA_RULES}
 1. 按修改意见调整，但必须保留下面这些固定文案和玩法，除非修改意见明确要求更改：
    - 游戏名称「${MEMORY_MATCH_TITLE}」和副标题「${MEMORY_MATCH_SUBTITLE}」
    - 三关命名「见习侦探 / 线索侦探 / 王牌侦探」（各关张数、翻牌次数限制、时间限制如果修改意见里提到就按新的来，没提到就保持原样）
    - 结算页标题「${MEMORY_MATCH_LEADERBOARD_TITLE}」，以及翻牌次数与用时统计、排名规则说明
 2. 如果上面给出了「点选的具体部分」，尽量只调整这些部分及其直接相关的样式/结构。
-3. 输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。
-4. 只输出 HTML 代码，不要 Markdown 代码块。`;
+3. 翻牌必须露出另一面（卡背↔卡面切换），禁止用 scaleX(-1) 镜像；配对成功后图案保持正向、不能左右颠倒。
+4. 输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。
+5. 只输出 HTML 代码，不要 Markdown 代码块。`;
 }
 
 export async function persistMemoryMatch(params: {
@@ -346,27 +354,45 @@ export async function persistMemoryMatch(params: {
   projectId: string | null;
   assetId: string | null;
   isStarter?: boolean;
-}): Promise<{ projectId: string; slug: string; url: string; assetId: string }> {
-  const { htmlContent, form, projectId, assetId, isStarter = false } = params;
+  parentVersionId?: string | null;
+  versionNotes?: string;
+  promptOverride?: string;
+}): Promise<{ projectId: string; slug: string; url: string; assetId: string; versionId?: string }> {
+  const { htmlContent, form, projectId, assetId, isStarter = false, parentVersionId, versionNotes, promptOverride } = params;
   const parts = splitInlineWebParts(htmlContent);
   const summary = buildMemoryMatchSummary(form);
-  return persistWebAsset({
+  const prompt = promptOverride ?? summary;
+  const metaBase = {
+    kind: 'memory-match' as const,
+    sourceGame: 'memory-match',
+    isStarter,
+    starterVersion: isStarter ? MEMORY_MATCH_STARTER_VERSION : undefined,
+    ...form,
+  };
+  const saved = await persistWebAsset({
     title: MEMORY_MATCH_TITLE,
     html: parts.html || htmlContent,
     css: parts.css || undefined,
     js: parts.js || undefined,
     summary,
-    prompt: summary,
+    prompt,
     description: MEMORY_MATCH_DESC,
     projectId,
     assetId,
-    meta: { kind: 'memory-match', sourceGame: 'memory-match', isStarter, ...form },
+    parentVersionId,
+    versionNotes,
+    meta: metaBase,
   });
+  if (saved.versionId) {
+    await api.patch(`/assets/${saved.assetId}`, {
+      meta: { ...metaBase, projectId: saved.projectId, slug: saved.slug, headVersionId: saved.versionId },
+    });
+  }
+  return saved;
 }
 
 export async function loadMemoryMatchState() {
-  const [assetsRes, projectsRes] = await Promise.all([api.get('/assets'), api.get('/web-projects')]);
-  const all = assetsRes.data || [];
+  const [all, projectsRes] = await Promise.all([fetchAssetsList({ all: true }), api.get('/web-projects')]);
   const asset = all.find((a: { meta?: unknown }) => parseMeta(a.meta).kind === 'memory-match');
   const meta = asset ? parseMeta((asset as { meta?: unknown }).meta) : {};
 
@@ -380,16 +406,18 @@ export async function loadMemoryMatchState() {
 
   // asset.content 理论上已经是合并好 css/js 的完整 HTML，但历史数据可能只存了片段，
   // 这里优先从 web-projects 版本记录里重新合并一份最新的，保证预览一定带样式和脚本。
-  let html = asset?.content || '';
+  let html = (asset as { content?: string } | undefined)?.content || '';
+  if (!html && asset?.id) {
+    html = await fetchAssetContent(asset.id).catch(() => '');
+  }
+  let headVersionId =
+    typeof meta.headVersionId === 'string' ? (meta.headVersionId as string) : null;
+
   if (projectId) {
-    try {
-      const projectRes = await api.get(`/web-projects/${projectId}`);
-      const latest = projectRes.data?.versions?.[0];
-      if (latest?.html) {
-        html = mergeWebHtml({ html: latest.html, css: latest.css, js: latest.js });
-      }
-    } catch {
-      // 拉取失败时，回退用 asset.content
+    const headState = await loadWebProjectHead(projectId);
+    if (headState?.headHtml) {
+      html = headState.headHtml;
+      headVersionId = headState.headVersionId ?? headVersionId;
     }
   }
 
@@ -398,15 +426,36 @@ export async function loadMemoryMatchState() {
     projectId,
     slug,
     html,
+    headVersionId,
     form: asset ? formFromMeta(meta) : DEFAULT_FORM,
     hasSaved: !!html,
   };
 }
 
-/** 首次进入且尚无保存版本时，自动写入内置初始版，便于直接进入「小游戏优化」 */
+/** 首次进入且尚无保存版本时，自动写入内置初始版；内置样例有更新时同步升级 */
 export async function ensureMemoryMatchStarter() {
   const state = await loadMemoryMatchState();
-  if (state.hasSaved) return state;
+  if (state.hasSaved) {
+    const all = await fetchAssetsList({ all: true });
+    const asset = all.find(
+      (a: { meta?: unknown }) => parseMeta(a.meta).kind === 'memory-match',
+    );
+    const meta = asset ? parseMeta(asset.meta) : {};
+    const isStarter = meta.isStarter === true;
+    const starterVersion =
+      typeof meta.starterVersion === 'number' ? meta.starterVersion : 1;
+    if (isStarter && starterVersion < MEMORY_MATCH_STARTER_VERSION) {
+      await persistMemoryMatch({
+        htmlContent: MEMORY_MATCH_STARTER_HTML,
+        form: state.form,
+        projectId: state.projectId,
+        assetId: state.assetId,
+        isStarter: true,
+      });
+      return loadMemoryMatchState();
+    }
+    return state;
+  }
 
   await persistMemoryMatch({
     htmlContent: MEMORY_MATCH_STARTER_HTML,

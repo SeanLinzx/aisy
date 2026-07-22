@@ -1,11 +1,15 @@
 'use client';
 
+import { useLanguage } from '@/contexts/language-context';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
 import { AiProgress } from '@/components/course/ai-progress';
+import { MultiLineField } from '@/components/course/multi-line-field';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
 import {
   STORY_FILL_STORAGE_KEY,
@@ -14,6 +18,13 @@ import {
   type PictureBookStyle,
   type StorySceneForm,
 } from '@/lib/story-course';
+import type { DirectorEmbedProps } from '@/lib/director-pipeline';
+import {
+  loadDirectorScript,
+  markPictureBookImportPending,
+  saveDirectorStoryboard,
+  savePictureBookForFrameVideo,
+} from '@/lib/director-pipeline';
 
 interface BookScene {
   id: string;
@@ -31,7 +42,9 @@ function defaultStyle(): PictureBookStyle {
   };
 }
 
-export function PictureBookGame() {
+export function PictureBookGame({ embedded, stepTitle, onNextStep }: DirectorEmbedProps = {}) {
+  const { tx } = useLanguage();
+  const router = useRouter();
   const report = useReportGameProgress('picture-book');
   const [title, setTitle] = useState('我的 AI 绘本');
   const [style, setStyle] = useState<PictureBookStyle>(defaultStyle());
@@ -45,8 +58,49 @@ export function PictureBookGame() {
   const [error, setError] = useState<string | null>(null);
   const [hasImported, setHasImported] = useState(false);
   const [showStyle, setShowStyle] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+
+  function buildStoryboardPayload() {
+    return {
+      title,
+      style,
+      scenes: scenes.map((s) => ({ id: s.id, caption: s.caption, imageUrl: s.imageUrl })),
+    };
+  }
+
+  function importToFrameVideo(goNext?: boolean) {
+    const result = savePictureBookForFrameVideo(buildStoryboardPayload());
+    if (!result.ok) {
+      setError(result.reason);
+      setImportMsg(null);
+      return false;
+    }
+    setError(null);
+    setImportMsg(
+      `✅ 已导入 ${result.input.pageCount} 页插图，可生成 ${result.input.descs.length} 段首尾帧过渡视频`,
+    );
+    if (goNext && onNextStep) {
+      onNextStep();
+      return true;
+    }
+    if (!embedded) {
+      markPictureBookImportPending();
+      router.push('/student/course/g/video-studio?mode=keyframe');
+    }
+    return true;
+  }
 
   useEffect(() => {
+    if (embedded) {
+      const script = loadDirectorScript();
+      if (script?.story?.trim()) {
+        setTitle(script.title || '我的 AI 绘本');
+        const pages = splitStoryIntoPages(script.story, 3);
+        setScenes(pages.map((caption, i) => ({ id: `p${i + 1}`, caption, status: 'idle' as const })));
+        setHasImported(true);
+        return;
+      }
+    }
     try {
       const raw = localStorage.getItem(STORY_FILL_STORAGE_KEY);
       if (!raw) return;
@@ -59,7 +113,7 @@ export function PictureBookGame() {
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [embedded]);
 
   function importFromStoryFill() {
     try {
@@ -185,21 +239,30 @@ export function PictureBookGame() {
 
   return (
     <div className="w-full space-y-3">
+      {embedded && stepTitle && (
+        <div className="text-sm font-extrabold text-sky-700">{stepTitle}</div>
+      )}
       <div className="kid-card-yellow !py-2.5 !px-3">
         <p className="text-xs font-semibold text-ink-soft leading-relaxed">
-          📚 为每一页写好画面，AI 按<strong>统一画风</strong>生成插图；从第二页起参考第一页保持角色一致。
+          📚 为每一页写好画面，AI 按<strong>{tx('统一画风')}</strong>生成插图；从第二页起参考第一页保持角色一致。
         </p>
       </div>
 
       <div className="kid-card !p-3 space-y-2">
         <div className="flex flex-wrap gap-2 items-center justify-between">
-          <label className="text-sm font-bold">绘本标题</label>
+          <label className="text-sm font-bold">{tx('绘本标题')}</label>
           <button type="button" onClick={importFromStoryFill} className="kid-button-sm bg-violet-50 border-violet-200 text-violet-700 text-xs">
             📥 导入完整故事
           </button>
         </div>
-        <input className="kid-input !py-2 text-sm" value={title} onChange={(e) => setTitle(e.target.value)} />
-        {hasImported && <p className="text-[11px] text-emerald-700 font-bold">✅ 已从上一关导入完整故事文本</p>}
+        <MultiLineField
+          label={tx('绘本标题')}
+          labelClassName="text-sm font-bold"
+          value={title}
+          onChange={setTitle}
+          minHeight={56}
+        />
+        {hasImported && <p className="text-[11px] text-emerald-700 font-bold">{tx('✅ 已从上一关导入完整故事文本')}</p>}
       </div>
 
       <div className="kid-card-purple !p-3">
@@ -208,23 +271,29 @@ export function PictureBookGame() {
           onClick={() => setShowStyle((v) => !v)}
           className="w-full flex items-center justify-between text-sm font-bold"
         >
-          <span>🎨 全书统一风格</span>
+          <span>{tx('🎨 全书统一风格')}</span>
           <span className="text-xs text-ink-soft">{showStyle ? '收起 ▲' : '展开 ▼'}</span>
         </button>
         {showStyle && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-            <div>
-              <label className="text-[11px] font-bold text-ink-soft">画风</label>
-              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.artStyle} onChange={(e) => setStyle((s) => ({ ...s, artStyle: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-ink-soft">主角外貌</label>
-              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.character} onChange={(e) => setStyle((s) => ({ ...s, character: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-ink-soft">背景风格</label>
-              <input className="kid-input mt-1 !py-1.5 text-sm" value={style.background} onChange={(e) => setStyle((s) => ({ ...s, background: e.target.value }))} />
-            </div>
+          <div className="space-y-3 mt-2">
+            <MultiLineField
+              label={tx('画风')}
+              value={style.artStyle}
+              onChange={(value) => setStyle((s) => ({ ...s, artStyle: value }))}
+              minHeight={64}
+            />
+            <MultiLineField
+              label={tx('主角外貌')}
+              value={style.character}
+              onChange={(value) => setStyle((s) => ({ ...s, character: value }))}
+              minHeight={64}
+            />
+            <MultiLineField
+              label={tx('背景风格')}
+              value={style.background}
+              onChange={(value) => setStyle((s) => ({ ...s, background: value }))}
+              minHeight={64}
+            />
           </div>
         )}
       </div>
@@ -243,14 +312,15 @@ export function PictureBookGame() {
                 {generatingId === scene.id ? '生成中…' : '只生成本页'}
               </button>
             </div>
-            <div className="grid md:grid-cols-2 gap-3 items-start">
+            <div className="grid grid-cols-1 gap-3 items-start">
               <textarea
-                className="kid-textarea !min-h-[96px] text-sm leading-relaxed"
+                className="kid-textarea !min-h-[120px] text-sm leading-relaxed w-full resize-y"
                 value={scene.caption}
                 onChange={(e) => updateCaption(scene.id, e.target.value)}
-                placeholder="这一页画面里发生了什么？"
+                placeholder={tx('这一页画面里发生了什么？支持换行，长描述会自动撑高。')}
+                rows={4}
               />
-              <div className="min-h-[96px]">
+              <div className="min-h-[120px]">
                 {scene.status === 'generating' && (
                   <div className="h-full min-h-[96px] rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-xs font-bold text-amber-700 animate-pulse">
                     AI 正在画这一页…
@@ -285,14 +355,43 @@ export function PictureBookGame() {
         <button onClick={() => void generateAll()} disabled={busy || !!generatingId} className="kid-button-primary !py-2 text-sm">
           {busy ? `逐页生成中 (${doneCount}/${scenes.length})…` : '📚 一键生成整本绘本'}
         </button>
-        <Link href="/student/course/g/story-fill" className="kid-button-ghost text-sm">
-          ← 回去编故事
-        </Link>
+        {doneCount >= 2 && (
+          <button
+            type="button"
+            onClick={() => importToFrameVideo(embedded && !!onNextStep)}
+            className="kid-button-mint !py-2 text-sm"
+          >
+            {embedded && onNextStep ? '🎬 导入并进入视频创作' : '🎬 一键导入到首尾帧生视频'}
+          </button>
+        )}
+        {!embedded && (
+          <Link href="/student/course/g/story-fill" className="kid-button-ghost text-sm">
+            ← 回去编故事
+          </Link>
+        )}
+        {embedded && onNextStep && doneCount > 0 && doneCount < 2 && (
+          <button
+            type="button"
+            onClick={() => {
+              saveDirectorStoryboard(buildStoryboardPayload());
+              onNextStep();
+            }}
+            className="kid-button-ghost text-sm"
+          >
+            {tx('先进入视频页（需至少 2 页图才能导入）')}
+          </button>
+        )}
       </div>
 
-      {(busy || generatingId) && <AiProgress label="AI 正在按统一画风绘制绘本…" />}
+      {importMsg && (
+        <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 font-semibold">
+          {tx(importMsg)}
+        </div>
+      )}
+
+      {(busy || generatingId) && <AiProgress label={tx('AI 正在按统一画风绘制绘本…')} />}
       {error && (
-        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{tx(error)}</div>
       )}
 
       {doneCount > 0 && (
@@ -306,7 +405,7 @@ export function PictureBookGame() {
                   <div className="text-[11px] font-bold text-ink-soft">第 {i + 1} 页</div>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={resolveUploadPath(s.imageUrl!)} alt="" className="w-full max-h-40 object-contain rounded-lg border border-orange-100 bg-white" />
-                  <p className="text-[11px] text-ink-soft line-clamp-2">{s.caption}</p>
+                  <p className="text-[11px] text-ink-soft whitespace-pre-wrap break-words">{s.caption}</p>
                 </div>
               ))}
           </div>

@@ -1,6 +1,13 @@
 import { api } from '@/lib/api';
+import { fetchAssetContent, fetchAssetsList } from '@/lib/assets-cache';
 import { persistWebAsset } from '@/lib/persist-web-asset';
+import { splitInlineWebParts } from '@/lib/merge-web-html';
+import { loadWebProjectHead } from '@/lib/web-project-head';
 import { renderFilledSentence, type FillBlankSpec } from '@/components/course/fill-blank-sentence';
+import { DECLARATIVE_AI_ITERATION_HINT, wantsAiFeatures } from '@ai-camp/types';
+import { prepareIterationSourceForPrompt } from '@/lib/web-iteration-base';
+import { readKidLocalDraft, writeKidLocalDraft } from '@/lib/kid-app-local-draft';
+import { WEB_ITERATION_DELTA_RULES } from '@/lib/web-iteration-prompt';
 
 export { mergeWebHtml } from '@/lib/merge-web-html';
 
@@ -11,6 +18,27 @@ export interface FreeformForm {
   layoutItems: string;
   clickTarget: string;
   feedback: string;
+  /** 创建时勾选：生成后自动插入图片上传区 */
+  enableImageUpload: boolean;
+}
+
+export const FREEFORM_APP_LOCAL_KEY = 'kid-app.local.freeform';
+
+export interface FreeformAppLocalData {
+  form: FreeformForm;
+  step: number;
+  html: string;
+  projectId?: string | null;
+  assetId?: string | null;
+  slug?: string | null;
+}
+
+export function saveFreeformAppLocal(data: FreeformAppLocalData) {
+  return writeKidLocalDraft(FREEFORM_APP_LOCAL_KEY, data);
+}
+
+export function loadFreeformAppLocal(): FreeformAppLocalData | null {
+  return readKidLocalDraft<FreeformAppLocalData>(FREEFORM_APP_LOCAL_KEY)?.data ?? null;
 }
 
 export const PAGE_TITLE_DEFAULT = '我的 AI 小应用';
@@ -23,6 +51,7 @@ export const DEFAULT_FORM: FreeformForm = {
   layoutItems: '',
   clickTarget: '',
   feedback: '',
+  enableImageUpload: false,
 };
 
 export const SCENE_TEMPLATE: { segments: string[]; blanks: FillBlankSpec[] } = {
@@ -107,13 +136,17 @@ ${blocksContext}
 `
     : '';
 
-  return `这是我当前的小应用网页 HTML：
-${html}
+  const source = prepareIterationSourceForPrompt(html);
+  return `【上一版本完整 HTML 源码】（业务页面，共约 ${source.length} 字符 — 必须作为唯一基础做增量修改）
+${source}
 
 ${blockSection}【小学生的修改意见】
 ${instruction.trim()}
+${wantsAiFeatures(instruction) ? `\n${DECLARATIVE_AI_ITERATION_HINT}\n禁止 mock 占位；img/video 的 src 留空。` : ''}
 
-要求：输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。只输出 HTML 代码，不要 Markdown 代码块。`;
+要求：
+${WEB_ITERATION_DELTA_RULES}
+输出完整单文件 HTML（含内联 CSS 和 JavaScript），可直接运行。保留空的 data-ai-camp-runtime 占位标签。只输出 HTML 代码，不要 Markdown 代码块。`;
 }
 
 export function parseMeta(raw: unknown): Record<string, unknown> {
@@ -136,6 +169,7 @@ function formFromMeta(meta: Record<string, unknown>): FreeformForm {
     layoutItems: str('layoutItems', DEFAULT_FORM.layoutItems),
     clickTarget: str('clickTarget', DEFAULT_FORM.clickTarget),
     feedback: str('feedback', DEFAULT_FORM.feedback),
+    enableImageUpload: meta.enableImageUpload === true,
   };
 }
 
@@ -144,23 +178,38 @@ export async function persistFreeformApp(params: {
   form: FreeformForm;
   projectId: string | null;
   assetId: string | null;
-}): Promise<{ projectId: string; slug: string; url: string; assetId: string }> {
-  const { htmlContent, form, projectId, assetId } = params;
-  return persistWebAsset({
+  parentVersionId?: string | null;
+  versionNotes?: string;
+  promptOverride?: string;
+}): Promise<{ projectId: string; slug: string; url: string; assetId: string; versionId?: string }> {
+  const { htmlContent, form, projectId, assetId, parentVersionId, versionNotes, promptOverride } = params;
+  const parts = splitInlineWebParts(htmlContent);
+  const summary = buildFreeformSummary(form);
+  const metaBase = { kind: 'web-page' as const, sourceGame: 'freeform-app', ...form };
+  const saved = await persistWebAsset({
     title: form.topic.trim() || PAGE_TITLE_DEFAULT,
-    html: htmlContent,
-    summary: buildFreeformSummary(form),
-    prompt: buildFreeformSummary(form),
+    html: parts.html || htmlContent,
+    css: parts.css || undefined,
+    js: parts.js || undefined,
+    summary,
+    prompt: promptOverride ?? summary,
     description: FREEFORM_DESC,
     projectId,
     assetId,
-    meta: { kind: 'web-page', sourceGame: 'freeform-app', ...form },
+    parentVersionId,
+    versionNotes,
+    meta: metaBase,
   });
+  if (saved.versionId) {
+    await api.patch(`/assets/${saved.assetId}`, {
+      meta: { ...metaBase, projectId: saved.projectId, slug: saved.slug, headVersionId: saved.versionId },
+    });
+  }
+  return saved;
 }
 
 export async function loadFreeformAppState() {
-  const [assetsRes, projectsRes] = await Promise.all([api.get('/assets'), api.get('/web-projects')]);
-  const all = assetsRes.data || [];
+  const [all, projectsRes] = await Promise.all([fetchAssetsList({ all: true }), api.get('/web-projects')]);
   const asset = all.find(
     (a: { meta?: unknown }) => parseMeta(a.meta).kind === 'web-page' && parseMeta(a.meta).sourceGame === 'freeform-app',
   );
@@ -168,18 +217,34 @@ export async function loadFreeformAppState() {
 
   let projectId = typeof meta.projectId === 'string' ? meta.projectId : null;
   let slug = typeof meta.slug === 'string' ? meta.slug : null;
+  let headVersionId = typeof meta.headVersionId === 'string' ? (meta.headVersionId as string) : null;
   const myProjects = projectsRes.data || [];
   if (projectId && !myProjects.some((p: { id: string }) => p.id === projectId)) {
     projectId = null;
     slug = null;
+    headVersionId = null;
+  }
+
+  let html = (asset as { content?: string } | undefined)?.content || '';
+  if (!html && asset?.id) {
+    html = await fetchAssetContent(asset.id).catch(() => '');
+  }
+  if (projectId) {
+    const headState = await loadWebProjectHead(projectId);
+    if (headState?.headHtml) {
+      html = headState.headHtml;
+      headVersionId = headState.headVersionId ?? headVersionId;
+      slug = headState.slug ?? slug;
+    }
   }
 
   return {
     assetId: asset?.id ?? null,
     projectId,
     slug,
-    html: asset?.content || '',
+    headVersionId,
+    html,
     form: asset ? formFromMeta(meta) : DEFAULT_FORM,
-    hasSaved: !!asset?.content,
+    hasSaved: !!html,
   };
 }

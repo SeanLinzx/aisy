@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useLanguage } from '@/contexts/language-context';
 
 export interface FillBlankSpec {
   /** 对应 values / onChange 里的字段名 */
@@ -25,11 +26,17 @@ interface FillBlankSentenceProps {
 }
 
 /** 把 segments/blanks/values 拼成一句完整的话，空着的部分用占位提示代替（用于摘要/prompt） */
-export function renderFilledSentence(segments: string[], blanks: FillBlankSpec[], values: Record<string, string>): string {
+export function renderFilledSentence(
+  segments: string[],
+  blanks: FillBlankSpec[],
+  values: Record<string, string>,
+  tx?: (s: string) => string,
+): string {
+  const t = tx ?? ((s: string) => s);
   return segments.reduce((acc, seg, i) => {
     const blank = blanks[i];
-    const filled = blank ? values[blank.key]?.trim() || `（${blank.placeholder}）` : '';
-    return acc + seg + filled;
+    const filled = blank ? values[blank.key]?.trim() || `（${t(blank.placeholder)}）` : '';
+    return acc + t(seg) + filled;
   }, '');
 }
 
@@ -40,6 +47,7 @@ export function renderFilledSentence(segments: string[], blanks: FillBlankSpec[]
 const ADD_CUSTOM_VALUE = '__add_custom_option__';
 
 export function FillBlankSentence({ segments, blanks, values, onChange, layout = 'inline' }: FillBlankSentenceProps) {
+  const { tx } = useLanguage();
   const [customOptions, setCustomOptions] = useState<Record<string, string[]>>({});
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -62,11 +70,12 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
   }
 
   function QuickOptionChips({ blank }: { blank: FillBlankSpec }) {
-    if (!blank.quickOptions?.length) return null;
+    const opts = optionsFor(blank.key, blank.quickOptions);
+    if (!opts.length && !blank.quickOptions?.length) return null;
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[11px] text-ink-soft shrink-0">💡 没想好？点一下参考：</span>
-        {blank.quickOptions.map((opt) => {
+        <span className="text-[11px] text-ink-soft shrink-0">{tx('💡 没想好？点一下参考：')}</span>
+        {opts.map((opt) => {
           const selected = values[blank.key] === opt;
           return (
             <button
@@ -80,29 +89,73 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
               }`}
             >
               {selected && '✓ '}
-              {opt}
+              {tx(opt)}
             </button>
           );
         })}
+        {addingKey === blank.key ? (
+          <span className="inline-flex items-center gap-1.5">
+            <input
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmAdd(blank.key);
+                } else if (e.key === 'Escape') {
+                  setAddingKey(null);
+                  setDraft('');
+                }
+              }}
+              placeholder={tx('写下你自己的想法')}
+              className="rounded-xl border-2 border-brand/60 bg-orange-50/70 px-3 py-1.5 text-xs font-bold text-ink placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:border-brand transition w-40"
+            />
+            <button type="button" onClick={() => confirmAdd(blank.key)} className="kid-button-sm bg-brand text-white border-2 border-brand">
+              ✓ {tx('加入')}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAddingKey(null);
+                setDraft('');
+              }}
+              className="kid-button-sm bg-white text-ink-soft border-2 border-orange-200"
+            >
+              {tx('取消')}
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setAddingKey(blank.key);
+              setDraft('');
+            }}
+            className="kid-button-sm border-2 border-dashed border-orange-300 bg-white text-ink-soft hover:border-brand hover:text-brand"
+          >
+            ➕ {tx('自己写一个')}
+          </button>
+        )}
       </div>
     );
   }
 
   if (layout === 'form') {
-    const preview = renderFilledSentence(segments, blanks, values);
+    const preview = renderFilledSentence(segments, blanks, values, tx);
     return (
       <div className="space-y-4">
         {blanks.map((blank) => (
           <div key={blank.key} className="space-y-2">
             <label htmlFor={`blank-${blank.key}`} className="text-xs font-bold text-ink block">
-              ✏️ {blank.placeholder}
+              ✏️ {tx(blank.placeholder)}
             </label>
             {blank.multiline ? (
               <textarea
                 id={`blank-${blank.key}`}
                 className="kid-textarea !min-h-[72px] w-full text-sm leading-relaxed"
                 value={values[blank.key] || ''}
-                placeholder={`在这里写下${blank.placeholder}…`}
+                placeholder={`${tx('在这里写下')}${tx(blank.placeholder)}…`}
                 onChange={(e) => onChange(blank.key, e.target.value)}
               />
             ) : (
@@ -110,7 +163,7 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
                 id={`blank-${blank.key}`}
                 className="kid-input w-full !py-2.5 text-sm font-semibold"
                 value={values[blank.key] || ''}
-                placeholder={`在这里写下${blank.placeholder}…`}
+                placeholder={`${tx('在这里写下')}${tx(blank.placeholder)}…`}
                 onChange={(e) => onChange(blank.key, e.target.value)}
               />
             )}
@@ -118,7 +171,7 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
           </div>
         ))}
         <div className="rounded-xl bg-white/70 border-2 border-orange-100 px-3 py-3">
-          <div className="text-[11px] font-bold text-ink-soft mb-1">📋 拼成的话</div>
+          <div className="text-[11px] font-bold text-ink-soft mb-1">{tx('📋 拼成的话')}</div>
           <p className="text-sm text-ink leading-relaxed break-words whitespace-normal">{preview}</p>
         </div>
       </div>
@@ -132,7 +185,7 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
           const blank = blanks[i];
           return (
             <span key={i}>
-              {seg}
+              {tx(seg)}
               {blank && (
                 blank.input === 'select' && blank.quickOptions?.length ? (
                   addingKey === blank.key ? (
@@ -150,7 +203,7 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
                             setDraft('');
                           }
                         }}
-                        placeholder="写下你自己的想法"
+                        placeholder={tx('写下你自己的想法')}
                         className="inline-block rounded-lg border-b-[3px] border-dashed border-brand/60 bg-orange-50/70 px-2 py-0.5 text-sm font-bold text-ink placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:border-brand focus:bg-orange-50 transition w-32"
                       />
                       <button
@@ -184,13 +237,13 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
                         }
                       }}
                     >
-                      <option value="">{blank.placeholder}</option>
+                      <option value="">{tx(blank.placeholder)}</option>
                       {optionsFor(blank.key, blank.quickOptions).map((opt) => (
                         <option key={opt} value={opt}>
-                          {opt}
+                          {tx(opt)}
                         </option>
                       ))}
-                      <option value={ADD_CUSTOM_VALUE}>➕ 自己写一个…</option>
+                      <option value={ADD_CUSTOM_VALUE}>{tx('➕ 自己写一个…')}</option>
                     </select>
                   )
                 ) : (
@@ -198,7 +251,7 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
                     className="inline-block mx-1 align-baseline rounded-lg border-b-[3px] border-dashed border-brand/60 bg-orange-50/70 px-2 py-0.5 text-center font-bold text-ink placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:border-brand focus:bg-orange-50 transition"
                     style={{ width: `${Math.max(values[blank.key]?.length || 0, blank.placeholder.length, 4) + 2}ch` }}
                     value={values[blank.key] || ''}
-                    placeholder={blank.placeholder}
+                    placeholder={tx(blank.placeholder)}
                     onChange={(e) => onChange(blank.key, e.target.value)}
                   />
                 )
@@ -208,11 +261,11 @@ export function FillBlankSentence({ segments, blanks, values, onChange, layout =
         })}
       </p>
 
-      {blanks.some((b) => b.quickOptions?.length && b.input !== 'select') && (
+      {blanks.some((b) => (b.quickOptions?.length || customOptions[b.key]?.length)) && (
         <div className="space-y-1.5">
           {blanks.map(
             (b) =>
-              !!b.quickOptions?.length &&
+              (b.quickOptions?.length || customOptions[b.key]?.length) &&
               b.input !== 'select' && (
                 <QuickOptionChips key={b.key} blank={b} />
               ),

@@ -1,4 +1,6 @@
 /** 内置初始版小游戏 HTML —— 首次进入课程时自动保存，可直接进「小游戏优化」 */
+export const MEMORY_MATCH_STARTER_VERSION = 3;
+
 export const MEMORY_MATCH_STARTER_HTML = `<!doctype html>
 <html lang="zh">
 <head>
@@ -14,14 +16,15 @@ h1{margin:0;font-size:clamp(1.4rem,4vw,1.9rem);text-align:center;color:#fef08a;t
 .bar{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;margin-bottom:12px;font-size:.85rem;font-weight:700}
 .tag{background:rgba(0,0,0,.25);padding:6px 10px;border-radius:999px}
 .grid{display:grid;gap:10px;justify-content:center}
-.card-wrap{perspective:800px;width:72px;height:88px;cursor:pointer}
-.card{position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .45s;border-radius:12px}
-.card.flipped{transform:rotateY(180deg)}
-.face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;font-size:2rem;backface-visibility:hidden;border:2px solid rgba(255,255,255,.35);box-shadow:0 4px 12px rgba(0,0,0,.2)}
-.back{background:linear-gradient(145deg,#155e75,#0e7490);color:#fff;font-size:1.8rem}
-.front{background:#fff;color:#0f766e;transform:rotateY(180deg)}
-.card.matched .front{background:#d1fae5;border-color:#34d399}
-.card.disabled{pointer-events:none;opacity:.85}
+.card-wrap{position:relative;width:72px;height:88px;cursor:pointer}
+.card{position:relative;width:100%;height:100%;border-radius:12px}
+.face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;border-radius:12px;font-size:2rem;border:2px solid rgba(255,255,255,.35);box-shadow:0 4px 12px rgba(0,0,0,.2);transition:opacity .35s ease,transform .35s ease}
+.back{background:linear-gradient(145deg,#155e75,#0e7490);color:#fff;font-size:1.8rem;opacity:1;z-index:2}
+.front{background:#fff;color:#0f766e;opacity:0;z-index:1;transform:scale(.94)}
+.card-wrap.flipped .back{opacity:0;z-index:1}
+.card-wrap.flipped .front{opacity:1;z-index:2;transform:scale(1)}
+.card-wrap.matched .front{background:#d1fae5;border-color:#34d399}
+.card-wrap.disabled{pointer-events:none;opacity:.92}
 .btn{display:inline-block;margin-top:14px;padding:12px 20px;border:none;border-radius:14px;background:#fbbf24;color:#78350f;font-weight:800;font-size:1rem;cursor:pointer}
 .btn:hover{filter:brightness(1.05)}
 .btn-ghost{background:rgba(255,255,255,.15);color:#fff;border:2px solid rgba(255,255,255,.35)}
@@ -38,7 +41,7 @@ input{padding:10px 14px;border-radius:12px;border:2px solid rgba(255,255,255,.35
   <h1>🕵️ 小侦探·记忆力挑战</h1>
   <p class="sub">翻开线索卡，找出相同的侦探Emoji！</p>
   <div id="screen-start" class="panel" style="text-align:center">
-    <p style="margin:0 0 10px">输入你的侦探昵称，开始挑战三关！</p>
+    <p style="margin:0 0 10px">输入你的侦探昵称，开始挑战两关！</p>
     <input id="nickname" placeholder="侦探昵称" maxlength="12">
     <div><button class="btn" id="btn-start">开始挑战</button></div>
   </div>
@@ -66,10 +69,10 @@ input{padding:10px 14px;border-radius:12px;border:2px solid rgba(255,255,255,.35
 </div>
 <script>
 const EMOJIS=['🔍','🗝️','👣','🔦','📷','🧤','🔒','🧩'];
-const LEVELS=[{name:'第一关｜见习侦探',cards:8},{name:'第二关｜线索侦探',cards:12},{name:'第三关｜王牌侦探',cards:16}];
+const LEVELS=[{name:'第一关｜见习侦探',cards:8},{name:'第二关｜线索侦探',cards:12}];
 const LB_KEY='memoryMatchLeaderboard';
 let nickname='无名侦探',levelIdx=0,deck=[],open=[],lock=false,flips=0,matched=0,t0=0,timerId=null;
-let stats=[{flips:0,time:0},{flips:0,time:0},{flips:0,time:0}];
+let stats=[{flips:0,time:0},{flips:0,time:0}];
 const $=id=>document.getElementById(id);
 function show(id){['screen-start','screen-game','screen-result'].forEach(s=>$(s).classList.toggle('hidden',s!==id));}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
@@ -90,31 +93,31 @@ function renderLevel(){
   deck.forEach((emoji,i)=>{
     const w=document.createElement('div');w.className='card-wrap';
     w.innerHTML='<div class="card" data-i="'+i+'"><div class="face back">❓</div><div class="face front">'+emoji+'</div></div>';
-    w.onclick=()=>flip(i,w.querySelector('.card'));
+    w.onclick=()=>flip(i,w);
     grid.appendChild(w);
   });
   stopTimer();$('timer').textContent='⏱️ 0.0s';
 }
-function flip(i,card){
-  if(lock||card.classList.contains('flipped')||card.classList.contains('matched'))return;
+function flip(i,wrap){
+  if(lock||wrap.classList.contains('flipped')||wrap.classList.contains('matched'))return;
   if(!timerId&&flips===0&&open.length===0)startTimer();
-  card.classList.add('flipped');flips++;open.push({i,card});
+  wrap.classList.add('flipped');flips++;open.push({i,wrap});
   $('flips').textContent='🃏 翻牌 '+flips+' 次';
   if(open.length<2)return;
   lock=true;
   const[a,b]=open;
   if(deck[a.i]===deck[b.i]){
     setTimeout(()=>{
-      a.card.classList.add('matched','disabled');
-      b.card.classList.add('matched','disabled');
+      a.wrap.classList.add('matched','disabled');
+      b.wrap.classList.add('matched','disabled');
       matched++;open=[];lock=false;
       $('progress').textContent='✅ '+matched+' / '+(LEVELS[levelIdx].cards/2);
       if(matched===LEVELS[levelIdx].cards/2)finishLevel();
     },350);
   }else{
     setTimeout(()=>{
-      a.card.classList.remove('flipped');
-      b.card.classList.remove('flipped');
+      a.wrap.classList.remove('flipped');
+      b.wrap.classList.remove('flipped');
       open=[];lock=false;
     },800);
   }
@@ -125,7 +128,7 @@ function finishLevel(){
   stats[levelIdx]={flips,time:parseFloat(sec)};
   $('msg').textContent='本关完成！翻牌 '+flips+' 次，用时 '+sec+' 秒';
   $('level-actions').classList.remove('hidden');
-  $('btn-next').textContent=levelIdx<2?'进入下一关':'查看侦探成绩';
+  $('btn-next').textContent=levelIdx<LEVELS.length-1?'进入下一关':'查看侦探成绩';
 }
 function saveScore(totalFlips,totalTime){
   const score=Math.round(totalFlips*2+totalTime);
@@ -149,11 +152,11 @@ function showResult(){
 }
 $('btn-start').onclick=()=>{
   nickname=($('nickname').value||'').trim()||'无名侦探';
-  levelIdx=0;stats=[{flips:0,time:0},{flips:0,time:0},{flips:0,time:0}];
+  levelIdx=0;stats=LEVELS.map(()=>({flips:0,time:0}));
   show('screen-game');renderLevel();
 };
 $('btn-next').onclick=()=>{
-  if(levelIdx<2){levelIdx++;renderLevel();}
+  if(levelIdx<LEVELS.length-1){levelIdx++;renderLevel();}
   else showResult();
 };
 $('btn-retry').onclick=()=>renderLevel();

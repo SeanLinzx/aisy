@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { isPadMode } from '@/lib/pad-mode';
 import { useMyGroupScore } from '@/hooks/use-my-group-score';
+import { useLanguage } from '@/contexts/language-context';
 
 interface StudentScoreFabProps {
   /** 底部课堂跟随条是否显示（需抬高 FAB 避免遮挡） */
@@ -12,6 +13,7 @@ interface StudentScoreFabProps {
 
 /** 学生端右下角悬浮窗：查看本组与全班小组积分，加分时有庆祝动画 */
 export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) {
+  const { tx } = useLanguage();
   const pad = isPadMode();
   const { data, gain, clearGain } = useMyGroupScore(4000);
   const [open, setOpen] = useState(false);
@@ -35,7 +37,7 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
       {open && (
         <button
           type="button"
-          aria-label="关闭积分面板"
+          aria-label={tx('关闭积分面板')}
           className="fixed inset-0 z-[55] bg-black/20 backdrop-blur-[1px]"
           onClick={() => setOpen(false)}
         />
@@ -51,13 +53,13 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
           <div className="w-[min(100vw-2rem,22rem)] rounded-3xl border-2 border-amber-200 bg-gradient-to-br from-white to-amber-50 shadow-2xl p-4 animate-pop origin-bottom-right">
             <div className="flex items-center justify-between gap-2 mb-3">
               <div className="font-display font-extrabold text-lg flex items-center gap-2">
-                <span>🏆</span> 小组积分
+                <span>🏆</span> {tx('小组积分')}
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 className="w-8 h-8 rounded-full bg-white border-2 border-orange-100 text-sm font-bold hover:bg-orange-50"
-                aria-label="关闭"
+                aria-label={tx('关闭')}
               >
                 ✕
               </button>
@@ -65,29 +67,29 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
 
             {!hasGroup ? (
               <p className="text-sm text-ink-soft leading-relaxed">
-                老师分组后，这里会显示你们小组的积分和排名哦～
+                {tx('老师分组后，这里会显示你们小组的积分和排名哦～')}
               </p>
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between gap-3 rounded-2xl bg-white border-2 border-amber-200 px-4 py-3">
                   <div className="min-w-0">
-                    <div className="text-xs font-bold text-ink-soft">我的小组</div>
+                    <div className="text-xs font-bold text-ink-soft">{tx('我的小组')}</div>
                     <div className="font-extrabold truncate flex items-center gap-1.5">
                       <span>👯</span> {data!.myGroup!.name}
                     </div>
                     <div className="text-xs font-bold text-violet-700 mt-0.5">
-                      第 {data!.rank ?? '—'} / {data!.totalGroups} 名
+                      {tx('第')} {data!.rank ?? '—'} / {data!.totalGroups} {tx('名')}
                     </div>
                   </div>
                   <div className="text-center shrink-0">
                     <div className="text-3xl font-display font-extrabold text-brand">{points}</div>
-                    <div className="text-[10px] font-bold text-ink-soft">积分</div>
+                    <div className="text-[10px] font-bold text-ink-soft">{tx('积分')}</div>
                   </div>
                 </div>
 
                 {data!.leaderboard.length > 1 && (
                   <div>
-                    <div className="text-xs font-bold text-ink-soft mb-1.5">全班排行榜</div>
+                    <div className="text-xs font-bold text-ink-soft mb-1.5">{tx('全班排行榜')}</div>
                     <div className="space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
                       {data!.leaderboard.map((g, i) => {
                         const mine = g.id === data!.myGroup!.id;
@@ -103,7 +105,7 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
                           >
                             <span className="truncate">
                               {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`} {g.name}
-                              {mine && ' · 我们'}
+                              {mine && ` ${tx('· 我们')}`}
                             </span>
                             <span className="font-extrabold text-brand shrink-0 ml-2">{g.points}</span>
                           </div>
@@ -139,7 +141,7 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            aria-label={open ? '收起积分面板' : '查看小组积分'}
+            aria-label={open ? tx('收起积分面板') : tx('查看小组积分')}
             aria-expanded={open}
             className={cn(
               'relative flex items-center gap-2 rounded-full border-2 font-extrabold shadow-pop transition-all active:scale-95',
@@ -154,7 +156,7 @@ export function StudentScoreFab({ classroomBar = false }: StudentScoreFabProps) 
             <span className="text-xl leading-none" aria-hidden>
               🏆
             </span>
-            <span className="whitespace-nowrap">{hasGroup ? `${points} 分` : '积分'}</span>
+            <span className="whitespace-nowrap">{hasGroup ? `${points} ${tx('分')}` : tx('积分')}</span>
             {celebrating && (
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0" aria-hidden />
             )}

@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
 import { AssetImagePickerModal } from './asset-image-picker';
+import { useLanguage } from '@/contexts/language-context';
 
 /**
  * 图片上传：本地上传 或 从素材库选择。
@@ -21,6 +22,7 @@ export function ImageUpload({
   /** 是否显示「从素材库选择」 */
   showAssetLibrary?: boolean;
 }) {
+  const { tx } = useLanguage();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +37,7 @@ export function ImageUpload({
       const r = await api.post('/storage/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (r.data?.url) onChange(r.data.url);
     } catch (e: any) {
-      setError(e?.message || '上传失败');
+      setError(e?.message || tx('上传失败'));
     } finally {
       setUploading(false);
     }
@@ -48,11 +50,11 @@ export function ImageUpload({
       >
         {value ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={resolveUploadPath(value)} alt={label} className="w-full h-full object-cover" />
+          <img src={resolveUploadPath(value)} alt={tx(label)} className="w-full h-full object-cover" />
         ) : (
           <span className="text-center text-slate-400 p-3">
             <span className="block text-3xl mb-1">🖼️</span>
-            <span className="text-xs font-semibold">{uploading ? '上传中…' : label}</span>
+            <span className="text-xs font-semibold">{uploading ? tx('上传中…') : tx(label)}</span>
           </span>
         )}
       </div>
@@ -64,7 +66,7 @@ export function ImageUpload({
           disabled={uploading}
           className="kid-button-sm flex-1 bg-white border-2 border-orange-200 text-ink-soft text-xs"
         >
-          📤 {value ? '换一张' : '本地上传'}
+          📤 {value ? tx('换一张') : tx('本地上传')}
         </button>
         {showAssetLibrary && (
           <button
@@ -72,7 +74,7 @@ export function ImageUpload({
             onClick={() => setPickerOpen(true)}
             className="kid-button-sm flex-1 bg-violet-50 border-2 border-violet-200 text-violet-700 text-xs"
           >
-            📦 素材库
+            {tx('📦 素材库')}
           </button>
         )}
       </div>

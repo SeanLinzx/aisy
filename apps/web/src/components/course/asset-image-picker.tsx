@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '@/lib/api';
 import { resolveUploadPath } from '@/lib/upload-url';
+import { useLanguage } from '@/contexts/language-context';
 
 interface AssetItem {
   id: string;
@@ -28,6 +29,7 @@ export function AssetImagePickerModal({
   onClose: () => void;
   onPick: (url: string) => void;
 }) {
+  const { tx } = useLanguage();
   const [items, setItems] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [broken, setBroken] = useState<Set<string>>(new Set());
@@ -67,7 +69,7 @@ export function AssetImagePickerModal({
       className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/55 p-0 sm:p-6"
       role="dialog"
       aria-modal="true"
-      aria-label="从素材库选图片"
+      aria-label={tx('从素材库选图片')}
       onClick={onClose}
     >
       <div
@@ -75,24 +77,24 @@ export function AssetImagePickerModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
-          <div className="font-extrabold text-lg">📦 从素材库选图片</div>
+          <div className="font-extrabold text-lg">{tx('📦 从素材库选图片')}</div>
           <button
             type="button"
             onClick={onClose}
             className="w-9 h-9 rounded-full bg-orange-50 border-2 border-orange-100 text-slate-500 hover:text-slate-700 text-lg leading-none"
-            aria-label="关闭"
+            aria-label={tx('关闭')}
           >
             ✕
           </button>
         </div>
-        <p className="text-xs text-ink-soft mb-3 shrink-0">选一张你之前生成或保存的图片</p>
+        <p className="text-xs text-ink-soft mb-3 shrink-0">{tx('选一张你之前生成或保存的图片')}</p>
 
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain -mx-1 px-1">
           {loading ? (
-            <div className="py-16 text-center text-sm text-ink-soft">加载中…</div>
+            <div className="py-16 text-center text-sm text-ink-soft">{tx('加载中…')}</div>
           ) : items.length === 0 ? (
             <div className="py-16 text-center text-sm text-ink-soft px-4">
-              素材库里还没有图片，先去「生图」或「关键词生图」做一个吧！
+              {tx('素材库里还没有图片，先去「生图」或「关键词生图」做一个吧！')}
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pb-2">

@@ -2,27 +2,56 @@ import { redirect } from 'next/navigation';
 import { getServerUser } from '@/lib/auth-server';
 import { TeacherAppShell } from '@/components/teacher-app-shell';
 import { isPadMode } from '@/lib/pad-mode';
+import type { NavItem } from '@/components/role-shell';
 
-const nav = [
+const nav: NavItem[] = [
   { href: '/teacher', label: '首页', emoji: '🏠' },
-  { href: '/teacher/classes', label: '班级管理', emoji: '🏫' },
-  { href: '/teacher/groups', label: '小组管理', emoji: '👯' },
-  { href: '/teacher/scores', label: '小组积分', emoji: '🏆' },
-  { href: '/teacher/students', label: '学生账号', emoji: '🧒' },
-  { href: '/teacher/tasks', label: '任务管理', emoji: '📋' },
-  { href: '/teacher/classroom', label: '课堂控制台', emoji: '🎓' },
-  { href: '/teacher/turing', label: '图灵测试出题', emoji: '🤖' },
+  {
+    href: '/teacher/students',
+    label: '学生账号',
+    emoji: '🧒',
+    matchPrefixes: ['/teacher/students'],
+    children: [
+      {
+        href: '/teacher/classes',
+        label: '班级管理',
+        emoji: '🏫',
+        matchPrefixes: ['/teacher/classes'],
+        children: [
+          {
+            href: '/teacher/groups',
+            label: '小组与积分',
+            emoji: '👯',
+            matchPrefixes: ['/teacher/groups', '/teacher/scores'],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    href: '/teacher/classroom',
+    label: '课堂控制台',
+    emoji: '🎓',
+    matchPrefixes: ['/teacher/classroom', '/teacher/turing'],
+  },
+  { href: '/teacher/assets', label: '学生素材', emoji: '📦' },
   { href: '/teacher/reviews', label: '作品审核', emoji: '✅' },
-  { href: '/teacher/quotas', label: '额度分配', emoji: '🎟' },
+  { href: '/teacher/quotas', label: '额度分配', emoji: '🎟️' },
   { href: '/teacher/messages', label: '与家长沟通', emoji: '💬' },
 ];
 
-const padNav = [
-  { href: '/teacher/classroom', label: '控制台', emoji: '🎓', color: 'orange' as const },
-  { href: '/teacher/turing', label: '图灵', emoji: '🤖', color: 'purple' as const },
-  { href: '/teacher/scores', label: '积分', emoji: '🏆', color: 'yellow' as const },
-  { href: '/teacher/students', label: '学生', emoji: '🧒', color: 'mint' as const },
-  { href: '/teacher', label: '更多', emoji: '🏠', color: 'sky' as const },
+const padNav: NavItem[] = [
+  { href: '/teacher/classroom', label: '控制台', emoji: '🎓', color: 'orange' },
+  {
+    href: '/teacher/students',
+    label: '学生',
+    emoji: '🧒',
+    color: 'mint',
+    matchPrefixes: ['/teacher/classes', '/teacher/groups'],
+  },
+  { href: '/teacher/assets', label: '素材', emoji: '📦', color: 'sky' },
+  { href: '/teacher/reviews', label: '审核', emoji: '✅', color: 'purple' },
+  { href: '/teacher', label: '更多', emoji: '🏠', color: 'yellow' },
 ];
 
 export default async function TeacherLayout({ children }: { children: React.ReactNode }) {

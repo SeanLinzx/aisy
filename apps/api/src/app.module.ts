@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
-import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard';
 import { join } from 'path';
 
 import { PrismaModule } from './prisma/prisma.module';
@@ -32,15 +33,15 @@ import { MessagesModule } from './modules/messages/messages.module';
 import { CourseModule } from './modules/course/course.module';
 import { GrowthModule } from './modules/growth/growth.module';
 import { HealthController } from './health.controller';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 
 const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    // trust proxy 开启后按真实客户端 IP 限流。
-    // 课堂模式下每个学生有多个 3s 轮询（课堂状态/进度/消息），单人峰值 ≈ 80 req/min，
-    // 留足余量到 600/min；短窗口档防止单端瞬时打爆。
+    // 已登录用户按 userId 限流（UserThrottlerGuard），机房 NAT 共 IP 时不会全班抢一个桶。
+    // 课堂 SSE 替代 classroom 高频轮询后，单人峰值 ≈ 80 req/min，600/min 仍留足余量。
     ThrottlerModule.forRoot([
       { name: 'burst', ttl: 1_000, limit: 30 },
       { name: 'sustained', ttl: 60_000, limit: 600 },
@@ -78,7 +79,10 @@ const uploadDir = process.env.UPLOAD_DIR || join(process.cwd(), 'uploads');
     CourseModule,
     GrowthModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: UserThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
+  ],
   controllers: [HealthController],
 })
 export class AppModule {}

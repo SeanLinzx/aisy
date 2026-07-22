@@ -121,8 +121,16 @@ export interface SummarySession {
   records: Record<string, SummaryStudentRecord>;
 }
 
-export function getSummaryQuestion(id: string): SummaryQuestion | undefined {
-  return SUMMARY_QUESTIONS.find((q) => q.id === id);
+import type { Locale } from '@/lib/i18n/types';
+import { pickLocale } from '@/lib/i18n/localize';
+import { SUMMARY_QUESTIONS_EN } from '@/lib/i18n/detective-summary-en';
+
+export function getSummaryQuestions(locale: Locale = 'zh'): SummaryQuestion[] {
+  return pickLocale(SUMMARY_QUESTIONS, SUMMARY_QUESTIONS_EN, locale);
+}
+
+export function getSummaryQuestion(id: string, locale: Locale = 'zh'): SummaryQuestion | undefined {
+  return getSummaryQuestions(locale).find((q) => q.id === id);
 }
 
 export function summaryQuizScore(answers: Record<string, SummaryAnswerRecord>): { correct: number; total: number } {

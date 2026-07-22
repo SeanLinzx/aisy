@@ -11,6 +11,7 @@ import {
 } from '@/lib/story-course';
 import { reportGrowth } from '@/lib/growth-report';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
+import { useLanguage } from '@/contexts/language-context';
 
 const EXAMPLE_HEADS = ['人工智能', '春眠不觉', '好好学习'];
 const EXAMPLE_THEMES = [
@@ -20,6 +21,7 @@ const EXAMPLE_THEMES = [
 ];
 
 export function AcrosticPoemGame() {
+  const { tx } = useLanguage();
   const [heads, setHeads] = useState('人工智能');
   const [theme, setTheme] = useState('赞美 AI 帮助学习，充满好奇与梦想');
   const [poemTitle, setPoemTitle] = useState('');
@@ -33,15 +35,15 @@ export function AcrosticPoemGame() {
 
   async function generatePoem() {
     if (headChars.length < 2) {
-      setError('请至少输入 2 个藏头字（每个字对应一句诗的首字）。');
+      setError(tx('请至少输入 2 个藏头字（每个字对应一句诗的首字）。'));
       return;
     }
     if (headChars.length > 8) {
-      setError('藏头字最多 8 个，不然诗会太长啦！');
+      setError(tx('藏头字最多 8 个，不然诗会太长啦！'));
       return;
     }
     if (!theme.trim()) {
-      setError('请说明一下这首诗想表达什么。');
+      setError(tx('请说明一下这首诗想表达什么。'));
       return;
     }
 
@@ -85,7 +87,7 @@ export function AcrosticPoemGame() {
         summary: `藏头：${headChars.join('')}\n意向：${theme.trim()}\n\n${parsed.poem}`,
       });
     } catch (e: any) {
-      const msg = e?.message || '生成藏头诗失败';
+      const msg = e?.message || tx('生成藏头诗失败');
       setError(msg);
       await report({ status: 'failed', error: msg });
     } finally {
@@ -105,17 +107,17 @@ export function AcrosticPoemGame() {
     <div className="space-y-3">
       <div className="kid-card-yellow">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🎋 输入一串<strong>藏头字</strong>（每个字会成为一句诗的开头），再告诉 AI 你想表达什么，它就会帮你写一首带诗题的藏头诗！
+          🎋 {tx('输入一串')}<strong>{tx('藏头字')}</strong>
+          {tx('（每个字会成为一句诗的开头），再告诉 AI 你想表达什么，它就会帮你写一首带诗题的藏头诗！')}
         </p>
       </div>
 
       <div className="grid grid-cols-[minmax(240px,2fr)_minmax(0,3fr)] gap-3 items-start">
-        {/* 左侧：输入区 */}
         <div className="sticky top-4 self-start space-y-3">
           <div className="kid-card space-y-3">
             <div>
-              <label className="text-sm font-bold">藏头字</label>
-              <p className="text-xs text-ink-soft mt-0.5">连续输入，如「新年快乐」= 四句分别以新、年、快、乐开头</p>
+              <label className="text-sm font-bold">{tx('藏头字')}</label>
+              <p className="text-xs text-ink-soft mt-0.5">{tx('连续输入，如「新年快乐」= 四句分别以新、年、快、乐开头')}</p>
               <input
                 className="kid-input mt-1.5 text-lg tracking-widest"
                 value={heads}
@@ -130,7 +132,7 @@ export function AcrosticPoemGame() {
                       key={`${c}-${i}`}
                       className="inline-flex items-center gap-1 rounded-lg bg-amber-50 border border-amber-200 px-2 py-1 text-xs font-extrabold"
                     >
-                      <span className="text-ink-soft font-bold">第{i + 1}句</span>
+                      <span className="text-ink-soft font-bold">{tx('第句')}{i + 1}</span>
                       <span className="text-lg text-brand">{c}</span>
                     </span>
                   ))}
@@ -139,8 +141,8 @@ export function AcrosticPoemGame() {
             </div>
 
             <div>
-              <label className="text-sm font-bold">创作意向</label>
-              <p className="text-xs text-ink-soft mt-0.5">祝福、写景、励志……</p>
+              <label className="text-sm font-bold">{tx('创作意向')}</label>
+              <p className="text-xs text-ink-soft mt-0.5">{tx('祝福、写景、励志……')}</p>
               <textarea
                 className="kid-textarea !min-h-[72px] mt-1.5 text-sm"
                 value={theme}
@@ -150,23 +152,22 @@ export function AcrosticPoemGame() {
             </div>
 
             <div className="flex flex-wrap gap-1.5">
-              <span className="text-xs font-bold text-ink-soft self-center">例子：</span>
+              <span className="text-xs font-bold text-ink-soft self-center">{tx('例子：')}</span>
               {EXAMPLE_HEADS.map((_, i) => (
                 <button key={i} type="button" onClick={() => applyExample(i)} className="kid-button-sm bg-white border-amber-200 text-xs">
-                  {EXAMPLE_HEADS[i]}
+                  {tx(EXAMPLE_HEADS[i])}
                 </button>
               ))}
             </div>
           </div>
 
           <button onClick={() => void generatePoem()} disabled={loading} className="kid-button-primary w-full">
-            {loading ? 'AI 正在写诗…' : '🎋 生成藏头诗'}
+            {loading ? tx('AI 正在写诗…') : tx('🎋 生成藏头诗')}
           </button>
         </div>
 
-        {/* 右侧：结果区 */}
         <div className="min-w-0 space-y-3">
-          {loading && <AiProgress label="AI 正在按藏头字创作诗歌…" />}
+          {loading && <AiProgress label={tx('AI 正在按藏头字创作诗歌…')} />}
           {error && (
             <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
           )}
@@ -175,8 +176,8 @@ export function AcrosticPoemGame() {
             <div className="kid-card-mint space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="font-extrabold text-lg">{poemTitle || '📜 你的藏头诗'}</h3>
-                  {poemTitle && <p className="text-xs text-ink-soft font-semibold mt-0.5">AI 为你起的诗题</p>}
+                  <h3 className="font-extrabold text-lg">{poemTitle || tx('📜 你的藏头诗')}</h3>
+                  {poemTitle && <p className="text-xs text-ink-soft font-semibold mt-0.5">{tx('AI 为你起的诗题')}</p>}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {headChars.map((c, i) => (
@@ -191,14 +192,14 @@ export function AcrosticPoemGame() {
                   {poem}
                 </p>
               </div>
-              {saved && <p className="text-xs font-bold text-emerald-700">✅ 已保存到素材库</p>}
+              {saved && <p className="text-xs font-bold text-emerald-700">{tx('✅ 已保存到素材库')}</p>}
               <AiWarning />
             </div>
           ) : !loading && !error ? (
             <div className="kid-card border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center min-h-[200px] px-4 py-8">
               <span className="text-4xl mb-2">🎋</span>
-              <p className="text-sm font-bold text-ink-soft">在左侧填好藏头字和创作意向</p>
-              <p className="text-xs text-ink-soft mt-1">点击「生成藏头诗」，诗歌会出现在这里</p>
+              <p className="text-sm font-bold text-ink-soft">{tx('在左侧填好藏头字和创作意向')}</p>
+              <p className="text-xs text-ink-soft mt-1">{tx('点击「生成藏头诗」，诗歌会出现在这里')}</p>
             </div>
           ) : null}
         </div>

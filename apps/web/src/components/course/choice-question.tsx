@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useLanguage } from '@/contexts/language-context';
 
 export interface ChoiceOption {
   value: string;
@@ -23,6 +24,7 @@ export function ChoiceQuestionGroup({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const { t, tx } = useLanguage();
   const [customOptions, setCustomOptions] = useState<ChoiceOption[]>([]);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState('');
@@ -42,7 +44,7 @@ export function ChoiceQuestionGroup({
 
   return (
     <div className="space-y-2">
-      <div className="text-sm font-bold text-ink">{spec.question}</div>
+      <div className="text-sm font-bold text-ink">{tx(spec.question)}</div>
       <div className="flex flex-wrap gap-2 items-center">
         {allOptions.map((opt) => {
           const selected = value === opt.value;
@@ -58,7 +60,7 @@ export function ChoiceQuestionGroup({
               }`}
             >
               {selected && '✓ '}
-              {opt.label}
+              {tx(opt.label)}
             </button>
           );
         })}
@@ -69,7 +71,7 @@ export function ChoiceQuestionGroup({
             onClick={() => setAdding(true)}
             className="kid-button-sm border-2 border-dashed border-orange-300 bg-white text-ink-soft hover:border-brand hover:text-brand"
           >
-            ➕ 自己写一个
+            ➕ {t('choice.addCustom', '自己写一个')}
           </button>
         ) : (
           <span className="inline-flex items-center gap-1.5">
@@ -86,11 +88,11 @@ export function ChoiceQuestionGroup({
                   setDraft('');
                 }
               }}
-              placeholder="写下你自己的想法"
+              placeholder={t('choice.customPlaceholder', '写下你自己的想法')}
               className="rounded-xl border-2 border-brand/60 bg-orange-50/70 px-3 py-1.5 text-xs font-bold text-ink placeholder:font-normal placeholder:text-slate-400 focus:outline-none focus:border-brand transition w-40"
             />
             <button type="button" onClick={confirmAdd} className="kid-button-sm bg-brand text-white border-2 border-brand">
-              ✓ 加入
+              ✓ {t('choice.add', '加入')}
             </button>
             <button
               type="button"
@@ -100,7 +102,7 @@ export function ChoiceQuestionGroup({
               }}
               className="kid-button-sm bg-white text-ink-soft border-2 border-orange-200"
             >
-              取消
+              {t('common.cancel', '取消')}
             </button>
           </span>
         )}

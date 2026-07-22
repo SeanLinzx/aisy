@@ -2,11 +2,14 @@
 import { RoleShell, type NavItem } from '@/components/role-shell';
 import { ClassroomBar } from '@/components/course/classroom-follow';
 import { ClassroomShowcasePopup } from '@/components/course/classroom-showcase-popup';
+import { CampSongPopup } from '@/components/course/camp-song-popup';
 import { useClassroomState } from '@/hooks/use-classroom-state';
 import { StudentClassroomProvider } from '@/contexts/student-classroom-context';
+import { CourseStreamProvider } from '@/contexts/course-stream-context';
+import { useLanguage } from '@/contexts/language-context';
 import { isPadMode } from '@/lib/pad-mode';
 
-export function StudentAppShell({
+function StudentAppShellInner({
   user,
   navItems,
   meId,
@@ -19,13 +22,14 @@ export function StudentAppShell({
 }) {
   const classroom = useClassroomState(meId);
   const pad = isPadMode();
+  const { t } = useLanguage();
 
   return (
-    <StudentClassroomProvider value={{ locked: classroom.locked, label: classroom.label }}>
+    <StudentClassroomProvider value={{ locked: classroom.locked, label: classroom.label, state: classroom.state, loaded: classroom.loaded }}>
       <RoleShell
         user={user}
         navItems={navItems}
-        title={pad ? '平板跟课' : '学生工作台'}
+        title={pad ? t('shell.padFollow', '平板跟课') : t('shell.studentDesk', '学生工作台')}
         autoCollapseSidebar={classroom.locked}
         navLocked={classroom.locked}
         classroomLabel={classroom.locked ? classroom.label : undefined}
@@ -43,6 +47,26 @@ export function StudentAppShell({
       {classroom.included && classroom.showcase && (
         <ClassroomShowcasePopup showcase={classroom.showcase} />
       )}
+      {classroom.included && classroom.campSong?.active && (
+        <CampSongPopup campSong={classroom.campSong} />
+      )}
     </StudentClassroomProvider>
+  );
+}
+
+/**
+ * CourseStreamProvider 包在最外层：全应用共享一条 SSE 长连接，
+ * useClassroomState 及各小游戏组件都从这里读取实时数据，不再各自开连接。
+ */
+export function StudentAppShell(props: {
+  user: { displayName: string; role: string; username: string };
+  navItems: NavItem[];
+  meId: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <CourseStreamProvider>
+      <StudentAppShellInner {...props} />
+    </CourseStreamProvider>
   );
 }

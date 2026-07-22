@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { api, apiAuth } from '@/lib/api';
 import { isPadMode, PAD_DASHBOARD_BY_ROLE } from '@/lib/pad-mode';
+import { useLanguage } from '@/contexts/language-context';
 
 const dashboardByRole: Record<string, string> = isPadMode()
   ? PAD_DASHBOARD_BY_ROLE
@@ -14,23 +15,17 @@ const dashboardByRole: Record<string, string> = isPadMode()
       admin: '/admin',
     };
 
-const QUICK_USERS: Array<{ u: string; emoji: string; label: string; cls: string }> = [
-  { u: 'alice',    emoji: '👧', label: '小朋友 Alice', cls: 'tag-pink' },
-  { u: 'bob',      emoji: '👦', label: '小朋友 Bob',   cls: 'tag-sky' },
-  { u: 'teacher1', emoji: '👩‍🏫', label: '老师',       cls: 'tag-mint' },
-  { u: 'parent1',  emoji: '👨‍👧', label: '家长',       cls: 'tag-yellow' },
-  { u: 'admin',    emoji: '🛠️', label: '管理员',      cls: 'tag-purple' },
-];
-
 export default function LoginPage() {
+  const { t } = useLanguage();
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-ink-soft font-semibold">加载中…</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-ink-soft font-semibold">{t('login.loading', '加载中…')}</div>}>
       <LoginInner />
     </Suspense>
   );
 }
 
 function LoginInner() {
+  const { t, tx } = useLanguage();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,15 +49,10 @@ function LoginInner() {
       const next = params.get('next') || dashboardByRole[r.user.role] || '/';
       router.push(next);
     } catch (err: any) {
-      setError(err.message || '登录失败');
+      setError(err.message || t('login.failed', '登录失败'));
     } finally {
       setLoading(false);
     }
-  }
-
-  function quick(u: string) {
-    setUsername(u);
-    setPassword('123456');
   }
 
   return (
@@ -87,33 +77,37 @@ function LoginInner() {
               {isPadMode() ? '📱' : '🎒'}
             </div>
             <h1 className="font-display text-3xl font-extrabold text-rainbow">
-              {isPadMode() ? '平板课堂登录' : '欢迎回来！'}
+              {isPadMode() ? t('login.padTitle', '平板课堂登录') : t('login.title', '欢迎回来！')}
             </h1>
             <p className="text-sm text-ink-soft mt-2 font-semibold">
               {isPadMode()
-                ? '老师用平板控制台，学生用平板跟课 ✨'
-                : '用老师给你的账号和密码登录吧 ✨'}
+                ? t('login.padSubtitle', '老师用平板控制台，学生用平板跟课 ✨')
+                : t('login.subtitle', '用老师给你的账号和密码登录吧 ✨')}
             </p>
           </div>
 
           <form onSubmit={submit} className="mt-7 space-y-4">
             {apiDown && (
               <div className="text-sm font-semibold text-amber-900 bg-amber-50 border-2 border-amber-200 rounded-2xl px-4 py-3 leading-relaxed">
-                ⚠️ 后端服务未连接（端口 3001）。请在终端进入 <code className="text-xs bg-white/80 px-1 rounded">ai-camp</code> 目录，运行 <code className="text-xs bg-white/80 px-1 rounded">./start-dev.sh</code> 启动后再登录。
+                {t('login.apiDown', '⚠️ 后端服务未连接（端口 3001）。请在终端进入')}{' '}
+                <code className="text-xs bg-white/80 px-1 rounded">ai-camp</code>{' '}
+                {t('login.apiDownRun', '目录，运行')}{' '}
+                <code className="text-xs bg-white/80 px-1 rounded">./start-dev.sh</code>{' '}
+                {t('login.apiDownThen', '启动后再登录。')}
               </div>
             )}
             <div>
-              <label className="block text-sm font-bold text-ink-soft mb-1.5">👤 用户名</label>
+              <label className="block text-sm font-bold text-ink-soft mb-1.5">{t('login.username', '👤 用户名')}</label>
               <input
                 className="kid-input"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="例如：alice"
+                placeholder={t('login.usernamePlaceholder', '例如：alice')}
                 autoFocus
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-ink-soft mb-1.5">🔑 密码</label>
+              <label className="block text-sm font-bold text-ink-soft mb-1.5">{t('login.password', '🔑 密码')}</label>
               <input
                 type="password"
                 className="kid-input"
@@ -128,36 +122,17 @@ function LoginInner() {
               </div>
             )}
             <button className="kid-button-primary w-full text-lg" type="submit" disabled={loading}>
-              {loading ? '登录中…' : '🚀 一起出发！'}
+              {loading ? t('login.submitting', '登录中…') : t('login.submit', '🚀 一起出发！')}
             </button>
           </form>
 
-          <div className="mt-7 border-t-2 border-dashed border-orange-200 pt-5">
-            <div className="text-xs font-bold text-ink-soft mb-2.5 flex items-center gap-1.5">
-              🎁 演示账号 <span className="text-ink-soft/70 font-medium">（密码统一为 123456）</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {QUICK_USERS.map((u) => (
-                <button
-                  key={u.u}
-                  type="button"
-                  onClick={() => quick(u.u)}
-                  className={`${u.cls} hover:wiggle cursor-pointer transition-transform hover:scale-105 active:scale-95`}
-                  title={`一键填入 ${u.u}`}
-                >
-                  <span className="mr-1">{u.emoji}</span>{u.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Link href="/" className="block text-center mt-6 text-xs font-semibold text-ink-soft hover:text-brand transition">
-            ← 返回首页
+          <Link href="/" className="block text-center mt-7 text-xs font-semibold text-ink-soft hover:text-brand transition">
+            {t('login.backHome', '← 返回首页')}
           </Link>
         </div>
 
         <div className="mt-4 text-center text-xs text-ink-soft/70 font-semibold">
-          💡 小提示：登录后可以使用 AI 写文字、画画、做网页哦~
+          {t('login.tip', '💡 小提示：登录后可以使用 AI 写文字、画画、做网页哦~')}
         </div>
       </div>
     </main>

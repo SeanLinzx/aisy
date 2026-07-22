@@ -2,10 +2,11 @@
 export function classroomTargetPath(state: {
   mode: 'game' | 'slides' | 'showcase';
   currentGame: string | null;
-  slides: { url: string } | null;
+  slides: { url: string; syncToStudents?: boolean } | null;
   showcase?: { displayName: string } | null;
 }): string {
-  const isSlides = state.mode === 'slides' && !!state.slides?.url;
+  const isSlides =
+    state.mode === 'slides' && !!state.slides?.url && state.slides.syncToStudents !== false;
   if (state.currentGame) return `/student/course/g/${state.currentGame}`;
   if (isSlides) return '/student/course/live';
   return '/student/course/live';

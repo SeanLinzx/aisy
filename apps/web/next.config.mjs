@@ -7,9 +7,13 @@ const nextConfig = {
   skipTrailingSlashRedirect: Boolean(basePath),
   reactStrictMode: true,
   images: { unoptimized: true },
-  // AI 网页/交互生成经 /api 反代到 Nest，单次常超过默认 30s，需拉长代理超时。
+  webpack: (config) => {
+    config.experiments = { ...config.experiments, asyncWebAssembly: true };
+    return config;
+  },
+  // AI 生成（含视频任务提交、网页生成）经 /api 反代到 Nest，需拉长代理超时。
   experimental: {
-    proxyTimeout: 180_000,
+    proxyTimeout: 420_000,
   },
   async rewrites() {
     const apiOrigin = process.env.API_ORIGIN || 'http://localhost:3001';

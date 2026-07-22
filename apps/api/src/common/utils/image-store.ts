@@ -1,7 +1,11 @@
+import { execFile } from 'child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { extname, join } from 'path';
+import { promisify } from 'util';
 import { request } from 'undici';
 import { customAlphabet } from 'nanoid';
+
+const execFileAsync = promisify(execFile);
 
 const nano = customAlphabet('abcdefghijklmnopqrstuvwxyz0123456789', 10);
 
@@ -257,6 +261,60 @@ export async function persistVideoUrl(url: string): Promise<string> {
   const filename = `${nano()}${media.ext}`;
   writeFileSync(join(uploadDir, filename), media.buf);
   return `${base}/${filename}`;
+}
+
+/** 从本地视频文件截取第一帧，保存为 uploads 下的 jpg 封面。 */
+export async function extractVideoThumbnail(videoUrl: string): Promise<string | null> {
+  const rel = resolveUploadRelPath(videoUrl);
+  if (!rel) return null;
+
+  const filePath = join(getUploadDir(), rel);
+  if (!existsSync(filePath)) return null;
+
+  const uploadDir = getUploadDir();
+  if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+
+  const thumbFilename = `${nano()}-frame.jpg`;
+  const thumbPath = join(uploadDir, thumbFilename);
+  const ffmpegBin = process.env.FFMPEG_PATH || 'ffmpeg';
+  const fallbackArgs = ['-y', '-i', filePath, '-vframes', '1', '-q:v', '2', thumbPath];
+
+  try {
+    await execFileAsync(ffmpegBin, ['-y', '-ss', '0.1', '-i', filePath, '-vframes', '1', '-q:v', '2', thumbPath], {
+      timeout: 60_000,
+    });
+  } catch {
+    try {
+      await execFileAsync(ffmpegBin, fallbackArgs, { timeout: 60_000 });
+    } catch {
+      return null;
+    }
+  }
+
+  if (!existsSync(thumbPath)) return null;
+  return `${getPublicUploadBase()}/${thumbFilename}`;
+}
+
+/** 判断 thumbnailUrl 是否为可用的图片封面（而非误存的视频地址）。 */
+export function isVideoThumbnailImage(thumbnailUrl?: string | null, videoUrl?: string | null): boolean {
+  if (!thumbnailUrl?.trim()) return false;
+  if (videoUrl && thumbnailUrl.trim() === videoUrl.trim()) return false;
+  return /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(thumbnailUrl) || thumbnailUrl.includes('-frame.jpg');
+}
+
+/** Save hex-encoded audio (MiniMax music API) under uploads/. */
+export async function persistHexAudio(hex: string, ext = '.mp3'): Promise<string> {
+  if (!hex) throw new Error('音频数据为空');
+
+  const uploadDir = getUploadDir();
+  if (!existsSync(uploadDir)) mkdirSync(uploadDir, { recursive: true });
+
+  const buf = Buffer.from(hex, 'hex');
+  if (!buf.length) throw new Error('音频 hex 解码失败');
+
+  const filename = `${nano()}${ext}`;
+  writeFileSync(join(uploadDir, filename), buf);
+  return `${getPublicUploadBase()}/${filename}`;
 }
 
 /** Download remote audio and store under uploads/. */

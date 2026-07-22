@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, ArrayMaxSize, IsIn, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
 import { Role, Roles as RoleValues } from '../../common/enums';
 import { UsersService } from './users.service';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -30,6 +31,23 @@ class UpdateUserDto {
   @IsOptional() @IsString() status?: 'active' | 'disabled';
 }
 
+class BatchStudentRowDto {
+  @IsString()
+  displayName!: string;
+  @IsString()
+  username!: string;
+  @IsOptional() @IsString() @MinLength(4) password?: string;
+}
+
+class BatchCreateStudentsDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => BatchStudentRowDto)
+  students!: BatchStudentRowDto[];
+  @IsOptional() @IsString() classId?: string;
+}
+
 @ApiTags('users')
 @Controller('users')
 export class UsersController {
@@ -37,8 +55,13 @@ export class UsersController {
 
   @Get()
   @Roles('admin', 'teacher')
-  list(@Query('role') role?: Role, @Query('q') q?: string, @Query('classId') classId?: string) {
-    return this.users.list({ role, q, classId });
+  list(
+    @Query('role') role?: Role,
+    @Query('q') q?: string,
+    @Query('classId') classId?: string,
+    @CurrentUser() me?: AuthUser,
+  ) {
+    return this.users.list({ role, q, classId }, me?.role);
   }
 
   @Post()
@@ -48,12 +71,23 @@ export class UsersController {
     if (me.role === 'teacher' && dto.role !== 'student') {
       dto.role = 'student';
     }
-    return this.users.create({ ...dto, createdById: me.id });
+    return this.users.create({ ...dto, createdById: me.id }, me.role);
+  }
+
+  @Post('batch')
+  @Roles('admin', 'teacher')
+  batchCreate(@Body() dto: BatchCreateStudentsDto, @CurrentUser() me: AuthUser) {
+    return this.users.batchCreateStudents({
+      students: dto.students,
+      classId: dto.classId,
+      createdById: me.id,
+    }, me.role);
   }
 
   @Get(':id')
-  get(@Param('id') id: string) {
-    return this.users.findById(id);
+  @Roles('admin', 'teacher', 'student', 'parent')
+  get(@Param('id') id: string, @CurrentUser() me: AuthUser) {
+    return this.users.findById(id, me.role);
   }
 
   @Patch(':id')
@@ -63,7 +97,7 @@ export class UsersController {
       // students/parents can only edit themselves
       throw new Error('无权限修改他人');
     }
-    return this.users.update(id, dto);
+    return this.users.update(id, dto, me.role);
   }
 
   @Delete(':id')

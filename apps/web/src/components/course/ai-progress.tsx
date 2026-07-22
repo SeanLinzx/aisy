@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { useLanguage } from '@/contexts/language-context';
 
-const TIPS = [
+const TIPS_ZH = [
   'AI 正在开动它的大脑…',
   '正在一点一点把它做出来…',
   '灵感正在路上，请稍等…',
@@ -27,20 +28,20 @@ export function AiProgress({
   durationMs?: number;
   className?: string;
 }) {
+  const { tx } = useLanguage();
   const [p, setP] = useState(4);
   const [tip, setTip] = useState(0);
   const startRef = useRef(0);
 
   useEffect(() => {
     startRef.current = Date.now();
-    // 到预计耗时时大约走到 90%，之后仍会非常缓慢地继续爬升，不会卡死不动
     const tau = durationMs / 2.4;
     const id = setInterval(() => {
       const elapsed = Date.now() - startRef.current;
       const target = 96 * (1 - Math.exp(-elapsed / tau));
       setP((prev) => Math.max(prev, Math.min(96, target)));
     }, 250);
-    const tipId = setInterval(() => setTip((t) => (t + 1) % TIPS.length), 2600);
+    const tipId = setInterval(() => setTip((t) => (t + 1) % TIPS_ZH.length), 2600);
     return () => { clearInterval(id); clearInterval(tipId); };
   }, [durationMs]);
 
@@ -48,10 +49,10 @@ export function AiProgress({
     <div className={`rounded-2xl border-2 border-orange-100 bg-white/80 p-3 ${className}`}>
       <div className="flex items-center justify-between text-xs font-bold text-ink-soft mb-1.5">
         <span className="flex items-center gap-2 flex-wrap">
-          <span>⏳ {label}</span>
+          <span>⏳ {tx(label)}</span>
           {estimate && (
             <span className="font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">
-              {estimate}
+              {tx(estimate)}
             </span>
           )}
         </span>
@@ -63,7 +64,7 @@ export function AiProgress({
           style={{ width: `${p}%` }}
         />
       </div>
-      <div className="text-[11px] text-ink-soft mt-1.5">{TIPS[tip]}</div>
+      <div className="text-[11px] text-ink-soft mt-1.5">{tx(TIPS_ZH[tip])}</div>
     </div>
   );
 }

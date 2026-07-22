@@ -26,6 +26,8 @@ model User {
   id           String      @id @default(cuid())
   username     String      @unique
   passwordHash String
+  // 管理员可查看的明文初始密码（创建/重置时写入，仅 admin 接口返回）
+  passwordPlain String?
   // One of: student | parent | teacher | admin
   role         String
   displayName  String
@@ -275,6 +277,8 @@ model WebProject {
   status         String              @default("draft")
   currentVersion Int                 @default(1)
   publishedVersionId String?
+  // 当前工作区版本（Studio 预览 / 下一次修改的父节点）
+  headVersionId      String?
   // private | class_only | public
   visibility     String              @default("private")
   // approved | pending | rejected | auto_flagged
@@ -292,18 +296,22 @@ model WebProject {
 }
 
 model WebProjectVersion {
-  id         String    @id @default(cuid())
-  projectId  String
-  version    Int
-  html       String
-  css        String?
-  js         String?
-  prompt     String?
-  notes      String?
-  createdAt  DateTime  @default(now())
-  project    WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  projectId       String
+  version         Int
+  html            String
+  css             String?
+  js              String?
+  prompt          String?
+  notes           String?
+  parentVersionId String?
+  createdAt       DateTime  @default(now())
+  project         WebProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentVersion   WebProjectVersion?  @relation("VersionTree", fields: [parentVersionId], references: [id], onDelete: SetNull)
+  childVersions   WebProjectVersion[] @relation("VersionTree")
 
   @@unique([projectId, version])
+  @@index([projectId, parentVersionId])
 }
 
 // ---------- Homepage ----------

@@ -1,8 +1,13 @@
 'use client';
 import Link from 'next/link';
-import { COURSE_LESSONS, THEME_GRADIENT } from '@/lib/course-config';
+import { useMemo } from 'react';
+import { getCourseLessons, THEME_GRADIENT } from '@/lib/course-config';
+import { useLanguage } from '@/contexts/language-context';
 
 export default function CourseOverview() {
+  const { t, locale } = useLanguage();
+  const lessons = useMemo(() => getCourseLessons(locale), [locale]);
+
   return (
     <div className="space-y-8">
       <header className="relative overflow-hidden rounded-4xl p-6 md:p-8 bg-gradient-to-br from-sky-100 via-violet-50 to-pink-100 border-2 border-sky-100 shadow-pop-sm">
@@ -11,19 +16,19 @@ export default function CourseOverview() {
           <span className="absolute bottom-3 right-24 text-2xl animate-float">⭐</span>
         </div>
         <div className="relative">
-          <div className="text-sm font-bold text-ink-soft">课程模式 · 6 节课闯关 🎒</div>
+          <div className="text-sm font-bold text-ink-soft">{t('course.badge', '课程模式 · 7 节课闯关 🎒')}</div>
           <h1 className="font-display text-3xl md:text-4xl font-extrabold mt-1">
-            <span className="text-rainbow">AI 训练营冒险地图</span>
+            <span className="text-rainbow">{t('course.title', 'AI 训练营冒险地图')}</span>
           </h1>
           <p className="text-ink-soft mt-2 font-semibold">
-            一节一节闯过去，做出属于你自己的 AI 作品！想自由玩工具？去
-            <Link href="/student/explore" className="text-brand underline mx-1">探索模式</Link>。
+            {t('course.subtitle', '一节一节闯过去，做出属于你自己的 AI 作品！想自由玩工具？去')}
+            <Link href="/student/explore" className="text-brand underline mx-1">{t('course.exploreLink', '探索模式')}</Link>。
           </p>
         </div>
       </header>
 
       <div className="space-y-5">
-        {COURSE_LESSONS.map((lesson) => (
+        {lessons.map((lesson) => (
           <Link
             key={lesson.slug}
             href={`/student/course/${lesson.slug}`}
@@ -35,7 +40,7 @@ export default function CourseOverview() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="tag">第 {lesson.index} 课</span>
+                  <span className="tag">{t('course.lesson', '第')} {lesson.index} {locale === 'en' ? '' : '课'}</span>
                   <h2 className="font-display text-xl font-extrabold">{lesson.title}</h2>
                   <span className="text-sm text-ink-soft font-semibold">· {lesson.subtitle}</span>
                 </div>
@@ -44,7 +49,7 @@ export default function CourseOverview() {
                   {lesson.games.map((g) => (
                     <span key={g.slug} className="inline-flex items-center gap-1 text-xs font-bold rounded-xl px-2.5 py-1 bg-white border-2 border-orange-100">
                       <span>{g.emoji}</span> {g.title}
-                      {g.status === 'placeholder' && <span className="text-[10px] text-slate-400">(预告)</span>}
+                      {g.status === 'placeholder' && <span className="text-[10px] text-slate-400">{t('game.comingSoon', '(预告)')}</span>}
                     </span>
                   ))}
                 </div>

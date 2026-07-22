@@ -1,4 +1,6 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { reportGrowth } from '@/lib/growth-report';
 
@@ -49,9 +51,10 @@ function emptyPlacements(): Record<string, string | null> {
 
 /** 每个零件用自己「真实的样子」渲染到手机预览里，摆哪儿就在哪儿显示 */
 function MockItem({ part }: { part: Part }) {
+  const { tx } = useLanguage();
   switch (part.id) {
     case 'title':
-      return <div className="text-base font-extrabold text-center">🕵️ 小侦探·记忆力挑战</div>;
+      return <div className="text-base font-extrabold text-center">{tx('🕵️ 小侦探·记忆力挑战')}</div>;
     case 'timer':
       return (
         <span className="inline-block bg-slate-100 text-slate-600 font-bold text-xs px-2 py-1 rounded-full">
@@ -97,6 +100,7 @@ function MockItem({ part }: { part: Part }) {
 }
 
 export function LayoutArrangeGame() {
+  const { tx } = useLanguage();
   const [pool] = useState(() => shuffle(PARTS));
   const [placements, setPlacements] = useState<Record<string, string | null>>(emptyPlacements);
   const [dragging, setDragging] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -196,7 +200,7 @@ export function LayoutArrangeGame() {
     <div className="space-y-4">
       <div className="kid-card-purple">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🧩 把下面 6 个「小侦探·记忆力挑战」游戏<b>页面零件</b>拖到你觉得合适的位置，右边会马上生成预览！摆完点<b>「📤 提交检查」</b>，AI 会给你一点小建议～
+          🧩 把下面 6 个「小侦探·记忆力挑战」游戏<b>{tx('页面零件')}</b>{tx('拖到你觉得合适的位置，右边会马上生成预览！摆完点')}<b>{tx('「📤 提交检查」')}</b>，AI 会给你一点小建议～
         </p>
       </div>
 
@@ -222,7 +226,7 @@ export function LayoutArrangeGame() {
                   </div>
                 ))}
               {placedCount === PARTS.length && (
-                <span className="text-xs text-emerald-600 font-bold self-center">零件都摆好啦，看看右边的预览吧！</span>
+                <span className="text-xs text-emerald-600 font-bold self-center">{tx('零件都摆好啦，看看右边的预览吧！')}</span>
               )}
             </div>
           </div>
@@ -261,8 +265,8 @@ export function LayoutArrangeGame() {
 
         {/* 右：实时页面预览（照实际摆放生成，不做对错判断） */}
         <div className="kid-card-sky space-y-3">
-          <div className="text-sm font-bold">📱 我的页面预览</div>
-          <p className="text-[11px] text-ink-soft">这是照你摆的样子生成的，摆法不同、看起来也会不一样～</p>
+          <div className="text-sm font-bold">{tx('📱 我的页面预览')}</div>
+          <p className="text-[11px] text-ink-soft">{tx('这是照你摆的样子生成的，摆法不同、看起来也会不一样～')}</p>
           <div className="mx-auto w-full max-w-[280px] rounded-[28px] border-4 border-slate-800 bg-white p-3 shadow-pop-sm min-h-[360px] space-y-4">
             {zoneItems.map(({ zone, items }) => (
               <div key={zone.id} className="min-h-[64px] rounded-xl border border-dashed border-slate-200 p-2 space-y-2">
@@ -292,7 +296,7 @@ export function LayoutArrangeGame() {
             </button>
           </div>
           {recorded && (
-            <p className="text-xs text-emerald-600 font-bold">🎉 已经记录到你的成长手册啦！可以继续换一种摆法多试试。</p>
+            <p className="text-xs text-emerald-600 font-bold">{tx('🎉 已经记录到你的成长手册啦！可以继续换一种摆法多试试。')}</p>
           )}
         </div>
       </div>

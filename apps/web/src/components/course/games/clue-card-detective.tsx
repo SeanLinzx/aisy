@@ -1,4 +1,6 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import { useEffect, useRef, useState } from 'react';
 import { reportGrowth } from '@/lib/growth-report';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
@@ -74,6 +76,7 @@ const CASES: Case[] = [
 ];
 
 export function ClueCardDetectiveGame() {
+  const { tx } = useLanguage();
   const report = useReportGameProgress('clue-card-detective');
   const [caseIdx, setCaseIdx] = useState(0);
   const [found, setFound] = useState<Record<string, boolean>>({});
@@ -159,13 +162,13 @@ export function ClueCardDetectiveGame() {
             <div className="flex items-center gap-2">
               <span className="text-2xl">🗂️</span>
               <div>
-                <div className="font-extrabold text-ink leading-tight">线索卡</div>
+                <div className="font-extrabold text-ink leading-tight">{tx('线索卡')}</div>
                 <div className="text-[10px] text-ink-soft">案件编号 · {kase.caseNo}</div>
               </div>
             </div>
 
             <div>
-              <div className="text-xs font-bold text-brand-dark mb-1.5">事件（开始 → 发展 → 高潮 → 结局）</div>
+              <div className="text-xs font-bold text-brand-dark mb-1.5">{tx('事件（开始 → 发展 → 高潮 → 结局）')}</div>
               <ol className="space-y-1.5">
                 {kase.clue.timeline.map((t) => (
                   <li key={t.label} className="text-xs leading-relaxed bg-white/80 rounded-lg px-2 py-1.5 border border-orange-100">
@@ -243,7 +246,7 @@ export function ClueCardDetectiveGame() {
 
       {notes.length > 0 && (
         <div className="kid-card-sky space-y-2">
-          <div className="font-extrabold text-sm text-ink flex items-center gap-1.5">🔍 侦探笔记</div>
+          <div className="font-extrabold text-sm text-ink flex items-center gap-1.5">{tx('🔍 侦探笔记')}</div>
           <div className="space-y-1.5">
             {notes.map((id) => {
               const err = kase.errors.find((e) => e.id === id)!;

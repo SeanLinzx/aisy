@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/contexts/language-context';
 import {
-  SUMMARY_QUESTIONS,
+  getSummaryQuestions,
   summaryQuizScore,
   type SummarySession,
   type SummaryStudentRecord,
@@ -11,12 +12,13 @@ import {
 import { showcaseFromSummary } from '@/lib/classroom-showcase';
 
 function OptionBar({ label, count, total, highlight }: { label: string; count: number; total: number; highlight?: boolean }) {
+  const { tx } = useLanguage();
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className={`truncate ${highlight ? 'font-bold text-emerald-700' : 'text-ink-soft'}`}>{label}</span>
-        <span className="font-bold shrink-0">{count} 人 · {pct}%</span>
+        <span className="font-bold shrink-0">{count}{tx(' 人 · ')}{pct}%</span>
       </div>
       <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
         <div
@@ -34,13 +36,16 @@ function StudentDetail({
   onEndShowcase,
   pushing,
   isShowcasing,
+  summaryQuestions,
 }: {
   record: SummaryStudentRecord;
   onPushShowcase?: (record: SummaryStudentRecord) => void;
   onEndShowcase?: () => void;
   pushing?: boolean;
   isShowcasing?: boolean;
+  summaryQuestions: ReturnType<typeof getSummaryQuestions>;
 }) {
+  const { tx } = useLanguage();
   const score = summaryQuizScore(record.answers);
   return (
     <div className="rounded-xl border-2 border-orange-100 bg-white p-3 space-y-2">
@@ -48,13 +53,13 @@ function StudentDetail({
         <span className="font-extrabold text-sm">{record.displayName}</span>
         <span className="flex items-center gap-2 text-[11px] font-bold">
           <span className={record.done ? 'text-emerald-600' : 'text-amber-600'}>
-            {record.done ? '✅ 已提交' : '✍️ 作答中'}
+            {record.done ? tx('✅ 已提交') : tx('✍️ 作答中')}
           </span>
-          <span className="text-violet-600">知识题 {score.correct}/{score.total}</span>
+          <span className="text-violet-600">{tx('知识题 ')}{score.correct}/{score.total}</span>
         </span>
       </div>
       <div className="space-y-1.5">
-        {SUMMARY_QUESTIONS.map((q) => {
+        {summaryQuestions.map((q) => {
           const a = record.answers[q.id];
           if (!a?.optionId && !a?.text) return null;
           const opt = q.options.find((o) => o.id === a.optionId);
@@ -85,7 +90,7 @@ function StudentDetail({
             onClick={onEndShowcase}
             className="w-full kid-button-sm bg-white border-2 border-amber-300 text-amber-800 shadow-sm hover:bg-amber-50 disabled:opacity-60"
           >
-            {pushing ? '处理中…' : '✋ 结束推送'}
+            {pushing ? tx('处理中…') : tx('✋ 结束推送')}
           </button>
         ) : (
           <button
@@ -94,7 +99,7 @@ function StudentDetail({
             onClick={() => onPushShowcase(record)}
             className="w-full kid-button-sm bg-gradient-to-r from-amber-400 to-orange-400 text-white border-0 shadow-sm hover:brightness-105 disabled:opacity-60"
           >
-            {pushing ? '推送中…' : '🌟 推送给全班分享'}
+            {pushing ? tx('推送中…') : tx('🌟 推送给全班分享')}
           </button>
         )
       )}
@@ -121,6 +126,8 @@ export function SummaryTeacherPanel({
   pushingStudentId?: string | null;
   activeShowcaseStudentId?: string | null;
 }) {
+  const { tx, locale } = useLanguage();
+  const summaryQuestions = useMemo(() => getSummaryQuestions(locale), [locale]);
   const external = externalSession !== undefined;
   const [polled, setPolled] = useState<SummarySession | null>(null);
   const session = external ? externalSession : polled;
@@ -154,9 +161,9 @@ export function SummaryTeacherPanel({
 
   const optionStats = useMemo(() => {
     const stats = new Map<string, Map<string, number>>();
-    for (const q of SUMMARY_QUESTIONS) stats.set(q.id, new Map());
+    for (const q of summaryQuestions) stats.set(q.id, new Map());
     for (const rec of records) {
-      for (const q of SUMMARY_QUESTIONS) {
+      for (const q of summaryQuestions) {
         const picked = rec.answers[q.id]?.optionId;
         if (!picked) continue;
         const m = stats.get(q.id)!;
@@ -164,7 +171,7 @@ export function SummaryTeacherPanel({
       }
     }
     return stats;
-  }, [records]);
+  }, [records, summaryQuestions]);
 
   const answeredByStudent = useMemo(() => {
     const map = new Map<string, SummaryStudentRecord>();
@@ -176,19 +183,19 @@ export function SummaryTeacherPanel({
     <div className="kid-card-orange space-y-4">
       <div className="flex items-start justify-between flex-wrap gap-2">
         <div>
-          <div className="text-sm font-bold">🕵️ 大侦探总结分享 · 答题看板</div>
-          <div className="text-xs text-ink-soft mt-0.5">学生每答一题会自动同步到这里（约 3 秒刷新）</div>
+          <div className="text-sm font-bold">{tx('🕵️ 大侦探总结分享 · 答题看板')}</div>
+          <div className="text-xs text-ink-soft mt-0.5">{tx('学生每答一题会自动同步到这里（约 3 秒刷新）')}</div>
         </div>
         <div className="flex flex-wrap gap-2 text-[11px] font-bold">
-          <span className="tag">参与 {roster.length} 人</span>
-          <span className="tag bg-amber-50 text-amber-700 border-amber-200">作答中 {records.length - doneCount}</span>
-          <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">已提交 {doneCount}</span>
+          <span className="tag">{tx('参与 ')}{roster.length}{tx(' 人')}</span>
+          <span className="tag bg-amber-50 text-amber-700 border-amber-200">{tx('作答中 ')}{records.length - doneCount}</span>
+          <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">{tx('已提交 ')}{doneCount}</span>
         </div>
       </div>
 
       {/* 分题统计 */}
       <div className="grid sm:grid-cols-2 gap-3">
-        {SUMMARY_QUESTIONS.map((q) => {
+        {summaryQuestions.map((q) => {
           const m = optionStats.get(q.id)!;
           const total = Array.from(m.values()).reduce((s, n) => s + n, 0);
           return (
@@ -205,7 +212,7 @@ export function SummaryTeacherPanel({
                   highlight={q.kind === 'quiz' && !!opt.correct}
                 />
               ))}
-              {total === 0 && <p className="text-[11px] text-ink-soft">还没有人回答这题。</p>}
+              {total === 0 && <p className="text-[11px] text-ink-soft">{tx('还没有人回答这题。')}</p>}
             </div>
           );
         })}
@@ -213,9 +220,9 @@ export function SummaryTeacherPanel({
 
       {/* 每位学生的答题过程 */}
       <div>
-        <div className="text-sm font-bold mb-2">👧 每位小朋友的回答</div>
+        <div className="text-sm font-bold mb-2">{tx('👧 每位小朋友的回答')}</div>
         {records.length === 0 ? (
-          <p className="text-sm text-ink-soft">还没有同学开始作答，推送游戏后这里会实时出现答案。</p>
+          <p className="text-sm text-ink-soft">{tx('还没有同学开始作答，推送游戏后这里会实时出现答案。')}</p>
         ) : (
           <div className="grid sm:grid-cols-2 gap-3 max-h-[70vh] overflow-y-auto pr-1">
             {roster
@@ -228,9 +235,9 @@ export function SummaryTeacherPanel({
                   onEndShowcase={onEndShowcase}
                   pushing={pushingStudentId === s.id}
                   isShowcasing={activeShowcaseStudentId === s.id}
+                  summaryQuestions={summaryQuestions}
                 />
               ))}
-            {/* 不在名单里但有作答的学生（如全班模式外的账号） */}
             {records
               .filter((r) => !roster.some((s) => s.id === r.studentId))
               .map((r) => (
@@ -241,6 +248,7 @@ export function SummaryTeacherPanel({
                   onEndShowcase={onEndShowcase}
                   pushing={pushingStudentId === r.studentId}
                   isShowcasing={activeShowcaseStudentId === r.studentId}
+                  summaryQuestions={summaryQuestions}
                 />
               ))}
           </div>

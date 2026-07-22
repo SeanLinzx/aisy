@@ -3,7 +3,8 @@ import { request } from 'undici';
 import PDFDocument = require('pdfkit');
 import PptxGenJS from 'pptxgenjs';
 import QRCode from 'qrcode';
-import type { Archiver } from 'archiver';
+import { ZipArchive } from 'archiver';
+import ExcelJS from 'exceljs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseJson } from '../../common/utils/json';
 import { courseHomeUrl, growthUrl } from '../../common/utils/public-url';
@@ -156,24 +157,137 @@ export class ExportsService {
     return (s || 'export').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) || 'export';
   }
 
+  private async fetchStudentsForQrcodeExport(params: {
+    classId?: string;
+    userIds?: string[];
+  }) {
+    const where: {
+      role: 'student';
+      id?: { in: string[] };
+      classMemberships?: { some: { classId: string } };
+    } = { role: 'student' };
+
+    if (params.userIds?.length) {
+      where.id = { in: params.userIds };
+    } else if (params.classId) {
+      where.classMemberships = { some: { classId: params.classId } };
+    }
+
+    return this.prisma.user.findMany({
+      where,
+      orderBy: { displayName: 'asc' },
+      include: { homepage: { select: { slug: true } } },
+    });
+  }
+
+  private qrcodeScopeLabel(params: { classId?: string; userIds?: string[] }): string {
+    if (params.userIds?.length) return `已选${params.userIds.length}人`;
+    if (params.classId) return '班级';
+    return '全部';
+  }
+
+  private async qrPng(url: string): Promise<Buffer> {
+    return QRCode.toBuffer(url, { type: 'png', width: 256, margin: 2, errorCorrectionLevel: 'M' });
+  }
+
+  /** 批量导出学生二维码 Excel 表格（含二维码图片列） */
+  async exportStudentQrcodesXlsx(params: {
+    kind: 'course' | 'growth' | 'both';
+    classId?: string;
+    userIds?: string[];
+  }): Promise<{ buffer: Buffer; filename: string }> {
+    const students = await this.fetchStudentsForQrcodeExport(params);
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'AI Camp';
+    const sheet = workbook.addWorksheet('学生二维码');
+
+    const QR_SIZE = { width: 108, height: 108 };
+    const ROW_HEIGHT = 88;
+
+    if (params.kind === 'both') {
+      sheet.columns = [
+        { header: '昵称', key: 'name', width: 14 },
+        { header: '登录用户名', key: 'username', width: 16 },
+        { header: '课程主页链接', key: 'courseUrl', width: 44 },
+        { header: '课程主页二维码', key: 'courseQr', width: 18 },
+        { header: '成长历程链接', key: 'growthUrl', width: 44 },
+        { header: '成长历程二维码', key: 'growthQr', width: 18 },
+      ];
+    } else {
+      const linkHeader = params.kind === 'course' ? '课程主页链接' : '成长历程链接';
+      sheet.columns = [
+        { header: '昵称', key: 'name', width: 14 },
+        { header: '登录用户名', key: 'username', width: 16 },
+        { header: linkHeader, key: 'url', width: 48 },
+        { header: '二维码', key: 'qr', width: 18 },
+      ];
+    }
+
+    const header = sheet.getRow(1);
+    header.font = { bold: true };
+    header.alignment = { vertical: 'middle', horizontal: 'center' };
+    header.height = 22;
+
+    let rowIndex = 2;
+    let count = 0;
+
+    for (const s of students) {
+      const slug = s.homepage?.slug;
+      if (!slug) continue;
+
+      const courseUrl = courseHomeUrl(slug);
+      const growth = growthUrl(slug);
+      const row = sheet.addRow(
+        params.kind === 'both'
+          ? { name: s.displayName, username: s.username, courseUrl, growthUrl: growth }
+          : {
+              name: s.displayName,
+              username: s.username,
+              url: params.kind === 'course' ? courseUrl : growth,
+            },
+      );
+      row.height = ROW_HEIGHT;
+      row.alignment = { vertical: 'middle', wrapText: true };
+
+      if (params.kind === 'both') {
+        const coursePng = await this.qrPng(courseUrl);
+        const growthPng = await this.qrPng(growth);
+        const courseImg = workbook.addImage({ base64: coursePng.toString('base64'), extension: 'png' });
+        const growthImg = workbook.addImage({ base64: growthPng.toString('base64'), extension: 'png' });
+        sheet.addImage(courseImg, { tl: { col: 3, row: rowIndex - 1 }, ext: QR_SIZE });
+        sheet.addImage(growthImg, { tl: { col: 5, row: rowIndex - 1 }, ext: QR_SIZE });
+      } else {
+        const url = params.kind === 'course' ? courseUrl : growth;
+        const png = await this.qrPng(url);
+        const img = workbook.addImage({ base64: png.toString('base64'), extension: 'png' });
+        sheet.addImage(img, { tl: { col: 3, row: rowIndex - 1 }, ext: QR_SIZE });
+      }
+
+      rowIndex++;
+      count++;
+    }
+
+    if (count === 0) throw new BadRequestException('没有可导出的学生二维码（请确认学生已创建主页）');
+
+    const raw = await workbook.xlsx.writeBuffer();
+    const kindLabel = params.kind === 'both' ? '全部二维码' : params.kind === 'course' ? '课程主页' : '成长历程';
+    const scopeLabel = this.qrcodeScopeLabel(params);
+    return {
+      buffer: Buffer.from(raw),
+      filename: `学生${kindLabel}_${scopeLabel}.xlsx`,
+    };
+  }
+
   /** 批量导出学生二维码 ZIP（教师/管理员） */
   async exportStudentQrcodesZip(params: {
     kind: 'course' | 'growth' | 'both';
     classId?: string;
+    userIds?: string[];
   }): Promise<{ buffer: Buffer; filename: string }> {
-    const students = await this.prisma.user.findMany({
-      where: {
-        role: 'student',
-        ...(params.classId ? { classMemberships: { some: { classId: params.classId } } } : {}),
-      },
-      orderBy: { displayName: 'asc' },
-      include: { homepage: { select: { slug: true } } },
-    });
+    const students = await this.fetchStudentsForQrcodeExport(params);
 
     const chunks: Buffer[] = [];
-    // archiver CJS default export
-    const createArchiver = require('archiver') as (format: string, opts?: { zlib?: { level: number } }) => Archiver;
-    const archive = createArchiver('zip', { zlib: { level: 9 } });
+    const archive = new ZipArchive({ zlib: { level: 9 } });
     const done = new Promise<Buffer>((resolve, reject) => {
       archive.on('data', (c: Buffer) => chunks.push(c));
       archive.on('end', () => resolve(Buffer.concat(chunks)));
@@ -203,6 +317,18 @@ export class ExportsService {
     await archive.finalize();
     const buffer = await done;
     const kindLabel = params.kind === 'both' ? '全部二维码' : params.kind === 'course' ? '课程主页' : '成长历程';
-    return { buffer, filename: `学生${kindLabel}.zip` };
+    const scopeLabel = this.qrcodeScopeLabel(params);
+    return { buffer, filename: `学生${kindLabel}_${scopeLabel}.zip` };
+  }
+
+  /** 批量导入学生账号用的 CSV 模板（UTF-8 BOM，Excel 可直接打开） */
+  studentImportTemplateCsv(): { buffer: Buffer; filename: string } {
+    const lines = [
+      '昵称,登录用户名,初始密码',
+      '小爱,xiaoai,',
+      '小博,xiaobo,123456',
+    ];
+    const body = `\ufeff${lines.join('\n')}\n`;
+    return { buffer: Buffer.from(body, 'utf8'), filename: '学生账号导入模板.csv' };
   }
 }

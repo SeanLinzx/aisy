@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useMemo } from 'react';
+import { refreshAiCampRuntime, ensureDeclarativeAiBridge } from '@ai-camp/types';
 
 /** 用户在预览 iframe 里点选到的页面元素 */
 export interface PickedElement {
@@ -14,11 +15,26 @@ const PICKER_SCRIPT = `
   var selected=null;
   var HOVER='outline:2px dashed #a78bfa!important;outline-offset:2px!important;cursor:pointer!important';
   var ACTIVE='outline:3px solid #7c3aed!important;outline-offset:2px!important;box-shadow:0 0 0 4px rgba(124,58,237,.15)!important';
+  function resolvePickTarget(t){
+    if(!t||t===document.body||t===document.documentElement) return null;
+    var card=t.closest('.ai-camp-pf-card[data-pf-card]');
+    if(card) return card;
+    if(t.id==='portfolio-works-root') return null;
+    if(t.closest&&t.closest('.ai-camp-pf-nav,.ai-camp-pf-meta')) return null;
+    if(t.classList){
+      if(t.classList.contains('ai-camp-pf-section')||t.classList.contains('ai-camp-pf-grid')||t.classList.contains('ai-camp-pf-works')) return null;
+    }
+    if(t.closest&&t.closest('#portfolio-works-root')&&!t.closest('.ai-camp-pf-card[data-pf-card]')) return null;
+    return t;
+  }
   function describe(el){
     var tag=el.tagName.toLowerCase();
     var text=(el.innerText||'').trim().replace(/\\s+/g,' ').slice(0,120);
     var hint=tag;
-    if(text) hint+='「'+text.slice(0,36)+(text.length>36?'…':'')+'」';
+    if(el.matches&&el.matches('.ai-camp-pf-card[data-pf-card]')){
+      var title=el.querySelector('h3');
+      hint='作品卡片「'+(title?(title.innerText||'').trim().slice(0,28):'未命名')+'」';
+    }else if(text) hint+='「'+text.slice(0,36)+(text.length>36?'…':'')+'」';
     return {tag:tag,text:text,hint:hint,outerHtml:el.outerHTML.slice(0,1200)};
   }
   function clearSel(){
@@ -27,21 +43,23 @@ const PICKER_SCRIPT = `
     selected=null;
   }
   document.addEventListener('mouseover',function(e){
-    var t=e.target;
-    if(!t||t===document.body||t===document.documentElement||t===selected) return;
+    var t=resolvePickTarget(e.target);
+    if(!t||t===selected) return;
     if(t.dataset.__prevStyle===undefined) t.dataset.__prevStyle=t.getAttribute('style')||'';
     t.style.cssText=(t.dataset.__prevStyle||'')+';'+HOVER;
   },true);
   document.addEventListener('mouseout',function(e){
     var t=e.target;
     if(!t||t===selected) return;
+    var pick=resolvePickTarget(t);
+    if(!pick||pick!==t) return;
     t.style.cssText=t.dataset.__prevStyle||'';
   },true);
   document.addEventListener('click',function(e){
     e.preventDefault();
     e.stopPropagation();
-    var t=e.target;
-    if(!t||t===document.body||t===document.documentElement) return;
+    var t=resolvePickTarget(e.target);
+    if(!t) return;
     clearSel();
     selected=t;
     t.dataset.__prevStyle=t.getAttribute('style')||'';
@@ -69,10 +87,13 @@ export function buildPreviewDoc(html: string, css?: string, js?: string, pickMod
     if (css) doc = doc.replace(/<\/head>/i, `<style>${css}</style></head>`);
     const bodyScripts = [js, pickMode ? PICKER_SCRIPT : ''].filter(Boolean).join('\n');
     if (bodyScripts) doc = doc.replace(/<\/body>/i, `<script>${bodyScripts}</script></body>`);
-    return doc;
+    return ensureDeclarativeAiBridge(refreshAiCampRuntime(doc));
   }
   const bodyScripts = [js, pickMode ? PICKER_SCRIPT : ''].filter(Boolean).join('\n');
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${css || ''}</style></head><body>${safeHtml}<script>${bodyScripts}<\/script></body></html>`;
+  return ensureDeclarativeAiBridge(
+    refreshAiCampRuntime(`<!doctype html><html><head><meta charset="utf-8"><style>${css || ''}</style></head><body>${safeHtml}<script>${bodyScripts}<\/script></body></html>`),
+    { js },
+  );
 }
 
 /**

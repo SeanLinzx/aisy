@@ -1,10 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { reportGrowth } from '@/lib/growth-report';
+import { useLanguage } from '@/contexts/language-context';
 import {
-  SUMMARY_QUESTIONS,
+  getSummaryQuestions,
   summaryQuizScore,
   type SummaryAnswerRecord,
   type SummaryQuestion,
@@ -79,6 +80,8 @@ function QuestionCard({
 }
 
 export function DetectiveSummaryGame() {
+  const { tx, locale } = useLanguage();
+  const summaryQuestions = useMemo(() => getSummaryQuestions(locale), [locale]);
   const [answers, setAnswers] = useState<Answers>({});
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -117,9 +120,9 @@ export function DetectiveSummaryGame() {
   }
 
   async function submit() {
-    const missingChoice = SUMMARY_QUESTIONS.filter((q) => !answers[q.id]?.optionId);
+    const missingChoice = summaryQuestions.filter((q) => !answers[q.id]?.optionId);
     if (missingChoice.length > 0) {
-      setError(`还有 ${missingChoice.length} 题没选答案：${missingChoice.map((q) => q.emoji).join(' ')}`);
+      setError(`${tx('还有')} ${missingChoice.length} ${tx(' 题没选答案：')}${missingChoice.map((q) => q.emoji).join(' ')}`);
       return;
     }
     setSaving(true);
@@ -128,53 +131,53 @@ export function DetectiveSummaryGame() {
       await report(true);
       setSubmitted(true);
       const score = summaryQuizScore(answers);
-      const shareQ = SUMMARY_QUESTIONS.find((q) => q.kind === 'share');
-      const debateQ = SUMMARY_QUESTIONS.find((q) => q.kind === 'debate');
+      const shareQ = summaryQuestions.find((q) => q.kind === 'share');
+      const debateQ = summaryQuestions.find((q) => q.kind === 'debate');
       const shareAnswer = shareQ ? answers[shareQ.id] : undefined;
       const debateAnswer = debateQ ? answers[debateQ.id] : undefined;
       reportGrowth({
         kind: 'share',
         gameSlug: 'detective-summary',
-        title: '🕵️ 大侦探总结分享',
+        title: tx('🕵️ 大侦探总结分享'),
         summary: [
-          `知识题答对 ${score.correct}/${score.total} 题`,
-          debateAnswer?.optionLabel ? `思辨观点：${debateAnswer.optionLabel}` : null,
-          debateAnswer?.text ? `理由：${debateAnswer.text}` : null,
-          shareAnswer?.optionLabel ? `分享主题：${shareAnswer.optionLabel}` : null,
-          shareAnswer?.text ? `分享内容：${shareAnswer.text}` : null,
+          `${tx('知识题答对')} ${score.correct}/${score.total} ${tx('题')}`,
+          debateAnswer?.optionLabel ? `${tx('思辨观点：')}${debateAnswer.optionLabel}` : null,
+          debateAnswer?.text ? `${tx('理由：')}${debateAnswer.text}` : null,
+          shareAnswer?.optionLabel ? `${tx('分享主题：')}${shareAnswer.optionLabel}` : null,
+          shareAnswer?.text ? `${tx('分享内容：')}${shareAnswer.text}` : null,
         ]
           .filter(Boolean)
           .join('\n'),
-        detail: SUMMARY_QUESTIONS.map((q) => ({
+        detail: summaryQuestions.map((q) => ({
           question: q.title,
           answer: answers[q.id]?.optionLabel,
           text: answers[q.id]?.text,
         })),
       });
     } catch {
-      setError('提交失败，请再试一次');
+      setError(tx('提交失败，请再试一次'));
     } finally {
       setSaving(false);
     }
   }
 
   const score = summaryQuizScore(answers);
-  const answeredCount = SUMMARY_QUESTIONS.filter((q) => answers[q.id]?.optionId).length;
+  const answeredCount = summaryQuestions.filter((q) => answers[q.id]?.optionId).length;
 
   return (
     <div className="space-y-4">
       <div className="kid-card-orange">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🕵️ 各位 AI 侦探，经历了这段奇妙的旅程，我们即将结束！先回答几个「智者任务」小问题，再讲讲你的改变、感受、作品和展望。
-          <b>你的答案老师都能看到哦！</b>请牢记最初的科技本心。
+          {tx('🕵️ 各位 AI 侦探，经历了这段奇妙的旅程，我们即将结束！先回答几个「智者任务」小问题，再讲讲你的改变、感受、作品和展望。')}
+          <b>{tx('你的答案老师都能看到哦！')}</b>{tx('请牢记最初的科技本心。')}
         </p>
       </div>
 
       <div className="text-xs font-bold text-ink-soft">
-        进度：{answeredCount}/{SUMMARY_QUESTIONS.length} 题
+        {tx('进度：')}{answeredCount}/{summaryQuestions.length}{tx(' 题')}
       </div>
 
-      {SUMMARY_QUESTIONS.map((q) => (
+      {summaryQuestions.map((q) => (
         <QuestionCard
           key={q.id}
           question={q}
@@ -191,18 +194,18 @@ export function DetectiveSummaryGame() {
 
       {!submitted ? (
         <button onClick={() => void submit()} disabled={saving} className="kid-button-primary w-full">
-          {saving ? '提交中…' : '🚀 提交我的总结分享'}
+          {saving ? tx('提交中…') : tx('🚀 提交我的总结分享')}
         </button>
       ) : (
         <div className="kid-card-mint space-y-2">
           <div className="font-extrabold text-emerald-800">
-            🎉 提交成功！知识题答对 {score.correct}/{score.total} 题
+            {tx('🎉 提交成功！知识题答对')} {score.correct}/{score.total} {tx('题')}
           </div>
           <p className="text-sm text-ink-soft leading-relaxed">
-            「真正的造物，从来不是赚钱的工具，而是造福众生的温度。」<br />
-            保持你的好奇心，继续探索吧！—— 致每一位心怀热爱、敢于创造的未来发明家 🌟
+            {tx('「真正的造物，从来不是赚钱的工具，而是造福众生的温度。」')}<br />
+            {tx('保持你的好奇心，继续探索吧！—— 致每一位心怀热爱、敢于创造的未来发明家 🌟')}
           </p>
-          <p className="text-xs text-ink-soft">还可以继续修改上面的答案，修改会自动同步给老师。</p>
+          <p className="text-xs text-ink-soft">{tx('还可以继续修改上面的答案，修改会自动同步给老师。')}</p>
         </div>
       )}
     </div>

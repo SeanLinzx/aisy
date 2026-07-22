@@ -6,6 +6,7 @@ export const TRACKED_CREATION_GAMES = [
   'free-image',
   'decorate-room',
   'frame-video',
+  'ai-director',
   'video-studio',
   'video-guided',
   'video-free',
@@ -17,7 +18,7 @@ export const TRACKED_CREATION_GAMES = [
 export type TrackedCreationGame = (typeof TRACKED_CREATION_GAMES)[number];
 
 /** 第 4 课 · AI 生视频：会产出视频的上报来源 */
-export const VIDEO_CREATION_GAMES = ['frame-video', 'video-studio', 'video-free'] as const;
+export const VIDEO_CREATION_GAMES = ['frame-video', 'ai-director', 'video-studio', 'video-free'] as const;
 
 export type VideoCreationGame = (typeof VIDEO_CREATION_GAMES)[number];
 
@@ -148,6 +149,7 @@ export const GAME_PROGRESS_LABELS: Record<TrackedCreationGame, string> = {
   'free-image': '自由生图',
   'decorate-room': '奶龙装修房间',
   'frame-video': '关键帧生视频',
+  'ai-director': 'AI 小导演',
   'video-studio': '自由生视频',
   'video-guided': '模板生视频',
   'video-free': '自由生视频',

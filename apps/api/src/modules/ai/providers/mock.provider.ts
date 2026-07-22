@@ -56,7 +56,31 @@ export class MockProvider implements AiProviderAdapter {
   async generateText(input: BaseGenerateInput): Promise<TextResult> {
     await delay(400);
     const raw = input.prompt;
-    if (typeof input.options?.system === 'string' && input.options.system.includes('提示词优化')) {
+    const system = typeof input.options?.system === 'string' ? input.options.system : '';
+    const history = input.options?.messages as Array<{ role: string; content: string }> | undefined;
+    if (system.includes('产品经理') || system.includes('需求说明书')) {
+      const prdJson = JSON.stringify(
+        {
+          productName: '兴趣小助手',
+          tagline: `帮喜欢「${raw.slice(0, 12)}」的小朋友发现更多乐趣`,
+          targetUsers: '和我同龄的小朋友',
+          problem: '平时想记录和分享兴趣，但缺少一个好用的工具',
+          features: ['记录兴趣点滴', '生成趣味小知识', '分享给好朋友'],
+          scenario: '课余时间打开小应用，记录今天的新发现',
+        },
+        null,
+        2,
+      );
+      return {
+        text: `太棒了！你对「${raw.slice(0, 20)}」很有热情呢。我想再问问：你希望这个产品是给自己用，还是也给同学用？\n\n\`\`\`json\n${prdJson}\n\`\`\``,
+      };
+    }
+    if (history?.length) {
+      return {
+        text: `【演示】收到你的回复：「${raw.slice(0, 40)}」。这是 Mock 多轮对话占位回复，配置真实模型后可体验完整对话。`,
+      };
+    }
+    if (system.includes('提示词优化')) {
       const idea = raw.replace(/用户原始想法：\s*/s, '').split('请输出')[0]?.trim() || raw;
       const short = idea.slice(0, 60).replace(/\s+/g, ' ');
       return {
@@ -82,6 +106,40 @@ export class MockProvider implements AiProviderAdapter {
   async generateWebPage(input: BaseGenerateInput): Promise<WebPageResult> {
     await delay(500);
     const title = input.prompt.slice(0, 32) || 'AI 生成网页';
+    const aiCamp = Boolean(input.options?.aiCamp);
+    if (aiCamp) {
+      const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${title}</title><style>
+body{margin:0;font-family:system-ui;background:linear-gradient(135deg,#fef3c7,#bae6fd);min-height:100vh;padding:24px;}
+main{background:white;padding:32px;border-radius:24px;max-width:640px;margin:0 auto;box-shadow:0 16px 48px rgba(0,0,0,0.08);}
+h1{font-size:28px;color:#ea580c;margin:0 0 16px;text-align:center;}
+input,textarea{width:100%;padding:12px;border:2px solid #fed7aa;border-radius:12px;font-size:16px;box-sizing:border-box;}
+button{margin-top:12px;width:100%;padding:14px;background:#f97316;color:white;border:none;border-radius:999px;font-size:18px;font-weight:700;cursor:pointer;}
+#aiOutput{margin-top:16px;padding:16px;background:#fff7ed;border-radius:12px;min-height:80px;white-space:pre-wrap;line-height:1.6;}
+#aiLoading{display:none;text-align:center;color:#ea580c;font-weight:700;}
+</style></head><body><main>
+<h1>🪄 ${title}</h1>
+<input id="userInput" placeholder="在这里输入…" />
+<button id="generateBtn">✨ AI 生成</button>
+<div id="aiLoading">AI 正在思考…</div>
+<div id="aiOutput">输入内容后点击生成</div>
+<script>
+document.getElementById('generateBtn').addEventListener('click', async function(){
+  var inputEl=document.getElementById('userInput');
+  var outputEl=document.getElementById('aiOutput');
+  var loadingEl=document.getElementById('aiLoading');
+  var val=(inputEl.value||'').trim();
+  if(!val){alert('请先输入');return;}
+  loadingEl.style.display='block';
+  outputEl.textContent='AI 正在思考…';
+  try{
+    var text=await __AI_CAMP__.text(val,'你是友好的儿童 AI 助手');
+    outputEl.textContent=text;
+  }catch(e){outputEl.textContent='失败：'+(e.message||'请重试');}
+  finally{loadingEl.style.display='none';}
+});
+<\/script></main></body></html>`;
+      return { html };
+    }
     const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${title}</title><style>
 body{margin:0;font-family:system-ui;background:linear-gradient(135deg,#fef3c7,#bae6fd);min-height:100vh;display:flex;align-items:center;justify-content:center;}
 main{background:white;padding:48px;border-radius:24px;max-width:640px;box-shadow:0 16px 48px rgba(0,0,0,0.08);text-align:center;}

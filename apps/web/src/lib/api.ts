@@ -28,6 +28,8 @@ api.interceptors.response.use(
     let msg = body?.message || err.message || '网络错误';
     if (!err.response && (err.code === 'ERR_NETWORK' || err.message === 'Network Error')) {
       msg = '后端 API 未启动或无法连接。请在 ai-camp 目录运行：./start-dev.sh';
+    } else if (err.code === 'ECONNABORTED' || /timeout.*exceeded/i.test(String(err.message))) {
+      msg = 'AI 生成时间较长，已超时。请稍后重试，或把修改拆成更小的一步。';
     }
     console.error('[API]', status ?? 'network', body ?? err.message);
     const error = new Error(Array.isArray(msg) ? msg.join('，') : String(msg)) as Error & {

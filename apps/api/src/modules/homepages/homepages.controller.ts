@@ -15,6 +15,12 @@ export class HomepagesController {
     return this.hp.myHomepage(me.id);
   }
 
+  @Roles('student', 'teacher')
+  @Get('plaza')
+  classPlaza(@CurrentUser() me: AuthUser) {
+    return this.hp.listClassPlaza(me.id, me.role);
+  }
+
   @Patch('mine')
   updateMine(@CurrentUser() me: AuthUser, @Body() dto: Record<string, unknown>) {
     return this.hp.updateMine(me.id, dto as Parameters<HomepagesService['updateMine']>[1]);

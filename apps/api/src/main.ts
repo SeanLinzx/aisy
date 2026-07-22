@@ -6,7 +6,25 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+
+async function listenWithRetry(app: NestExpressApplication, port: number, retries = 8) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      await app.listen(port, '0.0.0.0');
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'EADDRINUSE' || attempt === retries) {
+        throw err;
+      }
+      Logger.warn(
+        `Port ${port} is busy (likely a stale dev process). Retrying in 1s... (${attempt}/${retries})`,
+        'Bootstrap',
+      );
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -37,6 +55,15 @@ async function bootstrap() {
     }
     next();
   });
+  // SSE 端点（/course/*/stream）显式关闭中间层缓冲：机房场景常见 nginx / 校园网代理
+  // 即使配了 proxy_buffering off，也建议尊重这个响应头，双重保险避免推送被攒批延迟。
+  app.use((req, res, next) => {
+    if (req.path.endsWith('/stream')) {
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+    }
+    next();
+  });
   app.enableShutdownHooks();
   app.enableCors({
     origin: [...new Set([...webOrigins, 'http://localhost:3000'])],
@@ -50,7 +77,6 @@ async function bootstrap() {
     }),
   );
   app.useGlobalFilters(new HttpExceptionFilter());
-  app.useGlobalInterceptors(new ResponseInterceptor());
 
   const swagger = new DocumentBuilder()
     .setTitle('AI Camp API')
@@ -62,7 +88,16 @@ async function bootstrap() {
   const doc = SwaggerModule.createDocument(app, swagger);
   SwaggerModule.setup('api/docs', app, doc);
 
-  await app.listen(port, '0.0.0.0');
+  await listenWithRetry(app, port);
+
+  // 30 人机房场景下会有大量长连接（SSE）+ 并发上传下载：
+  // 放宽 Node HTTP server 的连接级超时，避免课堂进行到一半时连接被服务端主动掐断。
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 65_000;
+  server.headersTimeout = 330_000;
+  server.requestTimeout = 0;
+  server.maxConnections = 0; // 0 = 不限制（默认即不限制，这里显式声明避免被环境覆盖）
+
   Logger.log(`🚀 API ready at http://localhost:${port}/api`, 'Bootstrap');
   Logger.log(`📚 Swagger at http://localhost:${port}/api/docs`, 'Bootstrap');
 }

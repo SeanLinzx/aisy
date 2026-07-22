@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { GroupsService } from './groups.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -9,6 +10,27 @@ class CreateGroupDto {
   @IsString() classId!: string;
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString({ each: true }) memberNames?: string[];
+}
+
+class BatchGroupNamesDto {
+  @IsString() classId!: string;
+  @IsArray()
+  @IsString({ each: true })
+  names!: string[];
+}
+
+class GroupWithMembersItemDto {
+  @IsString() name!: string;
+  @IsOptional() @IsString({ each: true }) memberNames?: string[];
+}
+
+class BatchGroupsWithMembersDto {
+  @IsString() classId!: string;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GroupWithMembersItemDto)
+  groups!: GroupWithMembersItemDto[];
 }
 
 class AddPointsDto {
@@ -45,7 +67,22 @@ export class GroupsController {
   @Post()
   @Roles('admin', 'teacher')
   create(@Body() dto: CreateGroupDto) {
+    if (dto.memberNames?.length) {
+      return this.groups.createWithMembers(dto.classId, dto.name, dto.memberNames);
+    }
     return this.groups.create(dto);
+  }
+
+  @Post('batch')
+  @Roles('admin', 'teacher')
+  batchCreate(@Body() dto: BatchGroupNamesDto) {
+    return this.groups.batchCreate(dto.classId, dto.names);
+  }
+
+  @Post('batch-with-members')
+  @Roles('admin', 'teacher')
+  batchCreateWithMembers(@Body() dto: BatchGroupsWithMembersDto) {
+    return this.groups.batchCreateWithMembers(dto.classId, dto.groups);
   }
 
   @Post('reset-points')
@@ -68,8 +105,12 @@ export class GroupsController {
 
   @Post(':id/members')
   @Roles('admin', 'teacher')
-  addMember(@Param('id') id: string, @Body('userId') userId: string) {
-    return this.groups.addMember(id, userId);
+  addMember(@Param('id') id: string, @Body() body: { userId?: string; names?: string[] }) {
+    if (body.names?.length) {
+      return this.groups.addMembersByNames(id, body.names);
+    }
+    if (!body.userId) throw new BadRequestException('请提供 userId 或 names');
+    return this.groups.addMember(id, body.userId);
   }
 
   @Delete(':id/members/:userId')

@@ -1,7 +1,8 @@
 import { api } from '@/lib/api';
+import { invalidateAssetsCache } from '@/lib/assets-cache';
 import { publishPath } from '@/lib/public-url';
 import { persistCourseWebProject } from '@/lib/course-web-project';
-import { mergeWebHtml } from '@/lib/merge-web-html';
+import { mergeWebHtml, splitInlineWebParts } from '@/lib/merge-web-html';
 
 export type WebAssetKind =
   | 'interaction'
@@ -27,16 +28,22 @@ export async function persistWebAsset(opts: {
   thumbnailUrl?: string;
   meta: Record<string, unknown> & { kind: WebAssetKind };
   setAsHomepage?: boolean;
-}): Promise<{ projectId: string; slug: string; url: string; assetId: string }> {
-  const { projectId: pid, slug, url } = await persistCourseWebProject({
+  parentVersionId?: string | null;
+  versionNotes?: string;
+}): Promise<{ projectId: string; slug: string; url: string; assetId: string; versionId?: string }> {
+  const mergedHtml = mergeWebHtml({ html: opts.html, css: opts.css, js: opts.js });
+  const parts = splitInlineWebParts(mergedHtml);
+  const { projectId: pid, slug, url, versionId } = await persistCourseWebProject({
     title: opts.title,
-    html: opts.html,
-    css: opts.css,
-    js: opts.js,
+    html: parts.html || mergedHtml,
+    css: parts.css || opts.css,
+    js: parts.js || opts.js,
     prompt: opts.prompt,
     projectId: opts.projectId,
     description: opts.description,
     setAsHomepage: opts.setAsHomepage,
+    parentVersionId: opts.parentVersionId,
+    notes: opts.versionNotes,
   });
 
   // content 字段要保存「完整可渲染」的单文件 HTML（内联好 css/js），
@@ -45,7 +52,7 @@ export async function persistWebAsset(opts: {
     type: 'web' as const,
     title: opts.title,
     summary: opts.summary,
-    content: mergeWebHtml({ html: opts.html, css: opts.css, js: opts.js }),
+    content: mergedHtml,
     url,
     thumbnailUrl: opts.thumbnailUrl,
     meta: {
@@ -63,8 +70,40 @@ export async function persistWebAsset(opts: {
     const ar = await api.post('/assets', payload);
     assetId = ar.data.id as string;
   }
+  invalidateAssetsCache();
 
-  return { projectId: pid, slug, url, assetId };
+  return { projectId: pid, slug, url, assetId, versionId };
+}
+
+/** 为已有网页项目补写素材库记录（不新增版本），用于本地上传等场景的历史数据同步 */
+export async function createWebProjectAssetRecord(opts: {
+  projectId: string;
+  title: string;
+  html: string;
+  css?: string;
+  js?: string;
+  slug: string;
+  url: string;
+  summary?: string;
+  description?: string;
+  meta: Record<string, unknown> & { kind: WebAssetKind };
+}): Promise<string> {
+  const mergedHtml = mergeWebHtml({ html: opts.html, css: opts.css, js: opts.js });
+  const ar = await api.post('/assets', {
+    type: 'web' as const,
+    title: opts.title,
+    summary: opts.summary ?? opts.description,
+    content: mergedHtml,
+    url: opts.url,
+    meta: {
+      ...opts.meta,
+      projectId: opts.projectId,
+      slug: opts.slug,
+      linkUrl: opts.url,
+    },
+  });
+  invalidateAssetsCache();
+  return ar.data.id as string;
 }
 
 /** 解析网页素材的可跳转地址 */

@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { PublishedPageLink } from '@/components/published-page-link';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/contexts/language-context';
 import { buildCreationSessionHtml } from '@/lib/creation-session-html';
 import { resolveUploadPath, resolveVideoPlaybackUrl } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
@@ -42,6 +44,7 @@ export function FreeCreateFlow({
   fromCourse?: boolean;
   lessonSlug?: string;
 }) {
+  const { tx } = useLanguage();
   const reportProgress = useReportGameProgress(progressSlug || 'video-free');
   const report = useCallback(
     (payload: Parameters<typeof reportProgress>[0]) => {
@@ -73,7 +76,7 @@ export function FreeCreateFlow({
   const previewHtml = useMemo(
     () =>
       buildCreationSessionHtml({
-        title: title || rawInput.slice(0, 16) || '我的创作',
+        title: title || rawInput.slice(0, 16) || tx('我的创作'),
         kind,
         rawPrompt: rawInput,
         optimizedPrompt: kind === 'image' ? rawInput : rawInput || optimized,
@@ -103,22 +106,30 @@ export function FreeCreateFlow({
             prompt: job.prompt,
             videoUrl: job.output.videoUrl,
             thumbnailUrl: job.output.videoUrl,
-            summary: '自由生视频已完成',
+            summary: tx('自由生视频已完成'),
           });
           setStep('done');
           setBusy(false);
           return;
         }
         if (job.status === 'failed') {
-          setError(job.error || '视频生成失败');
-          void report({ status: 'failed', prompt: job.prompt, error: job.error || '视频生成失败' });
+          setError(job.error || tx('视频生成失败'));
+          void report({ status: 'failed', prompt: job.prompt, error: job.error || tx('视频生成失败') });
           setBusy(false);
+          return;
+        }
+        if (job.status === 'cancelled') {
+          setError(job.error || tx('任务已取消'));
+          setVideoJobId(null);
+          void report({ status: 'failed', prompt: job.prompt, error: job.error || tx('任务已取消') });
+          setBusy(false);
+          setStep('input');
           return;
         }
         void report({
           status: 'generating',
           prompt: job.prompt,
-          summary: '自由生视频生成中…',
+          summary: tx('自由生视频生成中…'),
         });
         setTimeout(poll, 4000);
       } catch {
@@ -135,7 +146,7 @@ export function FreeCreateFlow({
     const prompt = (promptOverride ?? (kind === 'video' ? rawInput : optimized)).trim();
     if (!prompt) return;
     if (kind === 'video' && refImageMode === 'required' && !refImage.trim()) {
-      setError('请先上传首帧参考图。');
+      setError(tx('请先上传首帧参考图。'));
       return;
     }
     if (kind === 'video') {
@@ -185,11 +196,11 @@ export function FreeCreateFlow({
           generateAudio: true,
         });
         setVideoJobId(r.data.jobId);
-        void report({ status: 'generating', prompt, summary: '已提交自由生视频任务…' });
+        void report({ status: 'generating', prompt, summary: tx('已提交自由生视频任务…') });
       }
     } catch (e: unknown) {
-      setError((e as Error).message || '生成失败');
-      void report({ status: 'failed', prompt, error: (e as Error).message || '生成失败' });
+      setError((e as Error).message || tx('生成失败'));
+      void report({ status: 'failed', prompt, error: (e as Error).message || tx('生成失败') });
       setStep(kind === 'image' ? 'input' : 'generate');
     } finally {
       if (kind === 'image') setBusy(false);
@@ -202,7 +213,7 @@ export function FreeCreateFlow({
     try {
       const r = await api.post('/ai-generate/creation-sessions', {
         kind,
-        title: title || rawInput.slice(0, 20) || '我的创作',
+        title: title || rawInput.slice(0, 20) || tx('我的创作'),
         rawPrompt: rawInput,
         optimizedPrompt: kind === 'image' ? rawInput : rawInput || optimized,
         imageUrls: kind === 'image' ? imageUrls : undefined,
@@ -214,7 +225,7 @@ export function FreeCreateFlow({
       setSessionSaved(true);
       setPageUrl(r.data.pageUrl);
     } catch (e: unknown) {
-      setError((e as Error).message || '保存失败');
+      setError((e as Error).message || tx('保存失败'));
     } finally {
       setBusy(false);
     }
@@ -227,16 +238,30 @@ export function FreeCreateFlow({
     try {
       const r = await api.post('/assets', {
         type: 'video',
-        title: title || rawInput.slice(0, 20) || 'AI 视频',
+        title: title || rawInput.slice(0, 20) || tx('AI 视频'),
         url: videoUrl,
         meta: { jobId: videoJobId, manualSaved: true },
       });
       setResultAssetId(r.data.id);
       setSavedToLibrary(true);
     } catch (e: unknown) {
-      setError((e as Error).message || '保存失败');
+      setError((e as Error).message || tx('保存失败'));
     } finally {
       setSavingVideo(false);
+    }
+  }
+
+  async function cancelVideoJob() {
+    if (!videoJobId || !busy) return;
+    if (!window.confirm(tx('确定取消这个视频任务吗？取消后需要重新提交。'))) return;
+    setError(null);
+    try {
+      await api.post(`/ai-generate/jobs/${videoJobId}/cancel`);
+      setVideoJobId(null);
+      setBusy(false);
+      setStep('input');
+    } catch (e: unknown) {
+      setError((e as Error).message || tx('取消失败'));
     }
   }
 
@@ -246,21 +271,21 @@ export function FreeCreateFlow({
     try {
       const r = await api.post('/assets', {
         type: 'image',
-        title: title || rawInput.slice(0, 20) || `AI图片-${index + 1}`,
+        title: title || rawInput.slice(0, 20) || `${tx('AI图片')}-${index + 1}`,
         url,
         meta: { source: 'free-image', manualSaved: true },
       });
       setResultAssetId(r.data.id);
       setSavedToLibrary(true);
     } catch (e: unknown) {
-      setError((e as Error).message || '保存失败');
+      setError((e as Error).message || tx('保存失败'));
     } finally {
       setSavingImageIdx(null);
     }
   }
 
   const imageSteps = ['input', 'generate', 'done'] as const;
-  const stepLabels = ['① 说出想法', '② 生成作品', '③ 保存记录'];
+  const stepLabels = [tx('① 说出想法'), tx('② 生成作品'), tx('③ 保存记录')];
 
   const effectivePrompt = kind === 'image' ? rawInput.trim() : rawInput.trim() || optimized.trim();
   const videoPrompt = rawInput.trim();
@@ -301,15 +326,15 @@ export function FreeCreateFlow({
 
       <div className="kid-card space-y-4">
         <div>
-          <label className="text-sm font-semibold">💭 用你自己的话描述想做什么</label>
+          <label className="text-sm font-semibold">{tx("💭 用你自己的话描述想做什么")}</label>
           <textarea
             className="kid-textarea min-h-[100px]"
             value={rawInput}
             onChange={(e) => setRawInput(e.target.value)}
             placeholder={
               kind === 'image'
-                ? '例如：我想画一只在彩虹上跳舞的小猫，背景是星空，水彩风格'
-                : '例如：一只小狐狸在夏天的森林里追着萤火虫跑，镜头慢慢推进'
+                ? tx('例如：我想画一只在彩虹上跳舞的小猫，背景是星空，水彩风格')
+                : tx('例如：一只小狐狸在夏天的森林里追着萤火虫跑，镜头慢慢推进')
             }
           />
         </div>
@@ -318,17 +343,17 @@ export function FreeCreateFlow({
           <>
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-semibold">尺寸</label>
+                <label className="text-sm font-semibold">{tx("尺寸")}</label>
                 <select className="kid-input mt-2" value={size} onChange={(e) => setSize(e.target.value)}>
-                  <option value="1K">1K 标清（更快，推荐）</option>
-                  <option value="2K">2K 高清</option>
+                  <option value="1K">{tx("1K 标清（更快，推荐）")}</option>
+                  <option value="2K">{tx("2K 高清")}</option>
                 </select>
               </div>
               <div>
-                <label className="text-sm font-semibold">张数</label>
+                <label className="text-sm font-semibold">{tx("张数")}</label>
                 <select className="kid-input mt-2" value={n} onChange={(e) => setN(Number(e.target.value))}>
-                  <option value={1}>1 张</option>
-                  <option value={2}>2 张</option>
+                  <option value={1}>{tx("1 张")}</option>
+                  <option value={2}>{tx("2 张")}</option>
                 </select>
               </div>
             </div>
@@ -340,7 +365,7 @@ export function FreeCreateFlow({
                 disabled={busy || !rawInput.trim()}
                 className="kid-button-primary"
               >
-                {busy ? '生成中…' : step === 'done' ? '🎨 再画一张' : '🎨 开始生图'}
+                {busy ? tx('生成中…') : step === 'done' ? tx('🎨 再画一张') : tx('🎨 开始生图')}
               </button>
             </div>
           </>
@@ -352,19 +377,19 @@ export function FreeCreateFlow({
               <ReferenceImageField
                 value={refImage}
                 onChange={setRefImage}
-                label={refImageMode === 'required' ? '首帧参考图（必填）' : '参考图（可选）'}
-                hint="点这里上传或从素材库选一张图，不用填链接，AI 会参考它来生视频"
+                label={refImageMode === 'required' ? tx('首帧参考图（必填）') : tx('参考图（可选）')}
+                hint={tx("点这里上传或从素材库选一张图，不用填链接，AI 会参考它来生视频")}
               />
             )}
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-semibold">时长</label>
+                <label className="text-sm font-semibold">{tx("时长")}</label>
                 <div className="kid-input mt-2 bg-orange-50/60 text-ink-soft cursor-default">
-                  3 秒（固定，生成更快）
+                  {tx('3 秒（固定，生成更快）')}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-semibold">比例</label>
+                <label className="text-sm font-semibold">{tx("比例")}</label>
                 <select className="kid-input mt-2" value={ratio} onChange={(e) => setRatio(e.target.value)}>
                   <option value="16:9">16:9</option>
                   <option value="9:16">9:16</option>
@@ -373,12 +398,12 @@ export function FreeCreateFlow({
               </div>
             </div>
             <div>
-              <label className="text-sm font-semibold">作品标题（保存时用，可选）</label>
+              <label className="text-sm font-semibold">{tx("作品标题（保存时用，可选）")}</label>
               <input
                 className="kid-input mt-2"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="给这次创作起个名字"
+                placeholder={tx("给这次创作起个名字")}
               />
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -388,18 +413,29 @@ export function FreeCreateFlow({
                 disabled={busy || !videoPrompt || (refImageMode === 'required' && !refImage.trim())}
                 className="kid-button-primary"
               >
-                {busy ? '已提交，生成中…' : '🎬 开始生视频'}
+                {busy ? tx('已提交，生成中…') : tx('🎬 开始生视频')}
               </button>
-              <VideoGenTimeHint estimate="3 秒视频约 1–2 分钟" className="!text-[11px]" />
+              <VideoGenTimeHint estimate={tx("3 秒视频约 1–2 分钟")} className="!text-[11px]" />
             </div>
           </>
         )}
 
         {busy && (
-          <AiProgress
-            label={kind === 'image' ? 'AI 正在画图…' : 'AI 正在生成视频，完成后会自动保存到素材库…'}
-            estimate={kind === 'video' ? '3 秒视频约 1–2 分钟' : undefined}
-          />
+          <div className="space-y-2">
+            <AiProgress
+              label={kind === 'image' ? tx('AI 正在画图…') : tx('AI 正在生成视频，完成后会自动保存到素材库…')}
+              estimate={kind === 'video' ? tx('3 秒视频约 1–2 分钟') : undefined}
+            />
+            {kind === 'video' && videoJobId && (
+              <button
+                type="button"
+                onClick={() => void cancelVideoJob()}
+                className="text-sm px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50"
+              >
+                {tx('取消任务')}
+              </button>
+            )}
+          </div>
         )}
         {error && (
           <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
@@ -410,19 +446,19 @@ export function FreeCreateFlow({
 
       {(imageUrls.length > 0 || videoUrl || (kind === 'video' && videoJobId)) && (
         <div className="kid-card space-y-4">
-          <h3 className="font-semibold">🖼️ 生成结果</h3>
+          <h3 className="font-semibold">{tx("🖼️ 生成结果")}</h3>
           {kind === 'image' && (
             <div className="grid sm:grid-cols-2 gap-4">
               {imageUrls.map((u, i) => (
                 <div key={u}>
                   <img
                     src={resolveUploadPath(u)}
-                    alt="作品"
+                    alt={tx("作品")}
                     className="w-full rounded-2xl border border-orange-100"
                   />
                   <ImageResultActions
                     url={u}
-                    title={title || `AI图片-${i + 1}`}
+                    title={title || `${tx('AI图片')}-${i + 1}`}
                     savedToLibrary={savedToLibrary}
                     fromCourse={fromCourse}
                     lessonSlug={lessonSlug}
@@ -438,7 +474,7 @@ export function FreeCreateFlow({
               <InlineVideoPlayer src={resolveUploadPath(videoUrl)} height="h-80" />
               <VideoResultActions
                 url={videoUrl}
-                title={title || rawInput.slice(0, 20) || 'AI视频'}
+                title={title || rawInput.slice(0, 20) || tx('AI视频')}
                 savedToLibrary={savedToLibrary}
                 assetId={resultAssetId}
                 saving={savingVideo}
@@ -448,8 +484,8 @@ export function FreeCreateFlow({
           )}
           {kind === 'video' && !videoUrl && videoJobId && (
             <div className="space-y-2">
-              <p className="text-sm text-slate-500">视频任务已提交，请稍等…页面会自动刷新结果。</p>
-              <VideoGenTimeHint estimate="3 秒视频约 1–2 分钟" className="!text-[11px]" />
+              <p className="text-sm text-slate-500">{tx("视频任务已提交，请稍等…页面会自动刷新结果。")}</p>
+              <VideoGenTimeHint estimate={tx("3 秒视频约 1–2 分钟")} className="!text-[11px]" />
             </div>
           )}
           <AiWarning />
@@ -458,31 +494,31 @@ export function FreeCreateFlow({
 
       {(effectivePrompt || imageUrls.length > 0 || videoUrl) && (
         <div className="kid-card space-y-3">
-          <h3 className="font-semibold">📄 创作页预览</h3>
+          <h3 className="font-semibold">{tx("📄 创作页预览")}</h3>
           <p className="text-xs text-slate-500">
-            保存后会生成独立网页，包含你的想法和作品，并同步到「我的网页」。
+            {tx("保存后会生成独立网页，包含你的想法和作品，并同步到「我的网页」。")}
           </p>
           <iframe
-            title="创作页预览"
+            title={tx("创作页预览")}
             srcDoc={previewHtml}
             className="w-full h-80 rounded-2xl border-2 border-orange-100 bg-white"
             sandbox="allow-same-origin"
           />
           {canSave && (
             <button type="button" onClick={saveSession} disabled={busy} className="kid-button-primary">
-              💾 保存完整创作记录（提示词 + 作品 + 网页）
+              {tx("💾 保存完整创作记录（提示词 + 作品 + 网页）")}
             </button>
           )}
           {sessionSaved && (
             <div className="text-sm text-emerald-600 space-y-1">
-              <div>✅ 已保存！提示词、{kind === 'image' ? '图片' : '视频'}和创作网页都已入库。</div>
+              <div>{tx('✅ 已保存！提示词、')}{kind === 'image' ? tx('图片') : tx('视频')}{tx('和创作网页都已入库。')}</div>
               {pageUrl && (
-                <Link href={pageUrl} target="_blank" className="text-brand font-bold underline">
-                  打开创作网页 →
-                </Link>
+                <PublishedPageLink href={pageUrl} className="text-brand font-bold underline">
+                  {tx("打开创作网页 →")}
+                </PublishedPageLink>
               )}
               <Link href="/student/projects" className="block text-brand font-bold">
-                去「我的网页」查看 →
+                {tx("去「我的网页」查看 →")}
               </Link>
             </div>
           )}

@@ -1,6 +1,5 @@
 'use client';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import Link from 'next/link';
 import { api } from '@/lib/api';
 import { COURSE_LESSONS, findGame, THEME_GRADIENT, THEME_CARD, type CourseGame } from '@/lib/course-config';
 import { DetectiveDeckFrame } from '@/components/course/detective-deck-frame';
@@ -12,6 +11,8 @@ import { GroupScoreboardPanel } from '@/components/course/group-scoreboard-panel
 import { GameProgressTeacherPanel } from '@/components/course/game-progress-teacher-panel';
 import { SummaryTeacherPanel } from '@/components/course/summary-teacher-panel';
 import { VideoRecognitionTeacherPanel } from '@/components/course/video-recognition-teacher-panel';
+import { TuringTeacherPanel } from '@/components/course/turing-teacher-panel';
+import { TuringQuestionBank } from '@/components/course/turing-question-bank';
 import { GameConsoleCard } from '@/components/course/game-console-card';
 import { TeacherCourseOutlineBar } from '@/components/course/teacher-course-outline-bar';
 import {
@@ -31,6 +32,8 @@ import {
 } from '@/lib/classroom-showcase';
 import { ClassroomShowcaseView } from '@/components/course/classroom-showcase-view';
 import { ReturnToStandbyFab } from '@/components/course/return-to-standby-fab';
+import { CampSongFab } from '@/components/course/camp-song-fab';
+import { SlidesSyncToggle } from '@/components/course/slides-sync-toggle';
 import type { GameProgressRecord } from '@/lib/course-game-progress';
 import type { SummaryStudentRecord } from '@/lib/detective-summary';
 
@@ -45,6 +48,8 @@ export default function TeacherClassroomPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [classes, setClasses] = useState<Array<{ id: string; name: string }>>([]);
+  const [rosterClassId, setRosterClassId] = useState('');
+  const [classStudents, setClassStudents] = useState<Student[]>([]);
   const [grabClassId, setGrabClassId] = useState('');
   const [draftGroups, setDraftGroups] = useState([
     { name: 'AI 小侦探队', capacity: 6, emoji: '🕵️' },
@@ -52,7 +57,12 @@ export default function TeacherClassroomPage() {
     { name: '未来探索者', capacity: 6, emoji: '🚀' },
   ]);
   const [scoreClassId, setScoreClassId] = useState('');
+  const [turingPrepOpen, setTuringPrepOpen] = useState(false);
   const [pushingStudentId, setPushingStudentId] = useState<string | null>(null);
+  /** 老师正在查看的课/任务（可与学生当前环节不同，推送后才同步） */
+  const [viewLessonSlug, setViewLessonSlug] = useState(COURSE_LESSONS[0].slug);
+  const [viewGameSlug, setViewGameSlug] = useState<string | null>(null);
+  const lastPushedGameRef = useRef<string | null>(null);
 
   // 单一聚合轮询：课堂状态 / 取消续费 / 抢组 / 创作进度 / 总结问答
   const { state: console_, connected, refresh } = useTeacherConsole(CONSOLE_GAMES);
@@ -62,6 +72,7 @@ export default function TeacherClassroomPage() {
   const gameProgress = console_?.gameProgress ?? null;
   const summary = console_?.summary ?? null;
   const videoRecognition = console_?.videoRecognition ?? null;
+  const turing = console_?.turing ?? null;
 
   // 学生名单 / 班级列表变化频率低，只在进入页面时加载一次
   useEffect(() => {
@@ -82,6 +93,56 @@ export default function TeacherClassroomPage() {
   }, []);
 
   useEffect(() => {
+    if (!rosterClassId) {
+      setClassStudents([]);
+      return;
+    }
+    let alive = true;
+    api
+      .get(`/classes/${rosterClassId}`)
+      .then((r) => {
+        if (!alive) return;
+        const members = (r.data?.members || [])
+          .filter((m: { user: { role: string } }) => m.user.role === 'student')
+          .map((m: { user: Student }) => m.user);
+        setClassStudents(members);
+      })
+      .catch(() => {
+        if (alive) setClassStudents([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [rosterClassId]);
+
+  useEffect(() => {
+    setSelected({});
+  }, [rosterClassId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash === '#turing-prep') {
+      setTuringPrepOpen(true);
+      requestAnimationFrame(() => {
+        document.getElementById('turing-prep')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    const g = state?.currentGame ?? null;
+    if (g && g !== lastPushedGameRef.current) {
+      lastPushedGameRef.current = g;
+      const found = findGame(g);
+      if (found) {
+        setViewLessonSlug(found.lesson.slug);
+        setViewGameSlug(g);
+      }
+    }
+    if (!g) lastPushedGameRef.current = null;
+  }, [state?.currentGame]);
+
+  useEffect(() => {
     const el = stickyNavRef.current;
     if (!el) return;
     const sync = () => setStickyNavHeight(el.offsetHeight);
@@ -91,19 +152,40 @@ export default function TeacherClassroomPage() {
     return () => ro.disconnect();
   }, []);
 
+  const rosterStudents = rosterClassId ? classStudents : students;
   const selectedIds = useMemo(() => Object.keys(selected).filter((k) => selected[k]), [selected]);
-  const allSelected = students.length > 0 && selectedIds.length === students.length;
+  const allSelected = rosterStudents.length > 0 && selectedIds.length === rosterStudents.length;
 
   function toggleAll() {
-    if (allSelected) setSelected({});
-    else setSelected(Object.fromEntries(students.map((s) => [s.id, true])));
+    if (allSelected) {
+      setSelected((prev) => {
+        const next = { ...prev };
+        for (const s of rosterStudents) delete next[s.id];
+        return next;
+      });
+    } else {
+      setSelected((prev) => ({
+        ...prev,
+        ...Object.fromEntries(rosterStudents.map((s) => [s.id, true])),
+      }));
+    }
   }
 
-  // 参与名单：全选时传 [] 表示「所有学生」
+  // 参与名单：[] = 全校学生（仅「全部学生」视图下）；选班级时必须传具体 ID
   function resolveStudents(): string[] {
-    if (selectedIds.length === 0 || allSelected) return [];
-    return selectedIds;
+    const rosterIds = rosterStudents.map((s) => s.id);
+    if (rosterIds.length === 0) return [];
+
+    const picked = selectedIds.filter((id) => rosterIds.includes(id));
+    if (picked.length > 0 && picked.length < rosterIds.length) return picked;
+
+    if (rosterClassId) return rosterIds;
+    return [];
   }
+
+  const resolvedRosterIds = useMemo(() => resolveStudents(), [rosterStudents, rosterClassId, selectedIds]);
+  const resolvedRosterCount =
+    resolvedRosterIds.length === 0 && !rosterClassId ? students.length : resolvedRosterIds.length;
 
   /** 包装课堂操作：统一 busy / 错误提示 / 操作后立即刷新聚合状态 */
   async function run(action: () => Promise<unknown>, failMsg: string) {
@@ -139,6 +221,9 @@ export default function TeacherClassroomPage() {
       if (slug === 'video-detective') {
         await api.post('/course/video-recognition/reset').catch(() => {});
       }
+      if (slug === 'turing-test') {
+        await api.post('/course/turing/responses/reset').catch(() => {});
+      }
       await api.put('/course/classroom', { currentGame: slug, mode: 'game' });
     }, '推送失败');
 
@@ -152,7 +237,8 @@ export default function TeacherClassroomPage() {
       await api.put('/course/classroom', {
         active: true,
         mode: 'slides',
-        slides: { url, name: file.name, page: 1, kind: 'pdf' },
+        slides: { url, name: file.name, page: 1, kind: 'pdf', syncToStudents: false },
+        students: resolveStudents(),
       });
     }, '上传课件失败');
 
@@ -163,11 +249,13 @@ export default function TeacherClassroomPage() {
           active: true,
           mode: 'slides',
           currentGame: null,
+          students: resolveStudents(),
           slides: {
             url: deckUrl('follow'),
             name: LESSON1_DETECTIVE_DECK.title,
             page: 1,
             kind: 'deck',
+            syncToStudents: false,
           },
         }),
       '启动互动课件失败',
@@ -182,7 +270,18 @@ export default function TeacherClassroomPage() {
 
   const playSlides = () => {
     if (!state?.slides) return;
-    return run(() => api.put('/course/classroom', { mode: 'slides' }), '切换课件失败');
+    return run(
+      () => api.put('/course/classroom', { mode: 'slides', slides: { ...state.slides!, syncToStudents: true } }),
+      '切换课件失败',
+    );
+  };
+
+  const setSlidesSync = (syncToStudents: boolean) => {
+    if (!state?.slides) return;
+    return run(
+      () => api.put('/course/classroom', { slides: { ...state.slides!, syncToStudents } }),
+      '更新同步设置失败',
+    );
   };
 
   /** 结束游戏/作品展示，让学生回到黑板（课件同步页） */
@@ -225,6 +324,28 @@ export default function TeacherClassroomPage() {
 
   const endShowcase = () => run(() => api.put('/course/classroom', { showcase: null }), '结束展示失败');
 
+  const startCampSong = () =>
+    run(
+      () =>
+        api.put('/course/classroom', {
+          campSong: { active: true, startedAt: Date.now(), syncStudents: false },
+        }),
+      '播放营歌失败',
+    );
+
+  const setCampSongSync = (syncStudents: boolean) => {
+    if (!state?.campSong?.active) return;
+    return run(
+      () =>
+        api.put('/course/classroom', {
+          campSong: { ...state.campSong!, syncStudents },
+        }),
+      '更新营歌同步失败',
+    );
+  };
+
+  const stopCampSong = () => run(() => api.put('/course/classroom', { campSong: null }), '停止营歌失败');
+
   const startCancelSubGame = () =>
     run(async () => {
       await api.put('/course/cancel-sub');
@@ -261,7 +382,11 @@ export default function TeacherClassroomPage() {
     }, '分配失败');
 
   const active = !!state?.active;
-  const studentCount = state ? (state.students.length === 0 ? students.length : state.students.length) : 0;
+  const studentCount = state
+    ? state.students.length === 0
+      ? students.length
+      : state.students.length
+    : resolvedRosterCount;
   const fileRef = useRef<HTMLInputElement>(null);
   const stickyNavRef = useRef<HTMLDivElement>(null);
   const [stickyNavHeight, setStickyNavHeight] = useState(152);
@@ -273,7 +398,26 @@ export default function TeacherClassroomPage() {
   const rosterStudentIds = state?.students?.length ? state.students : students.map((s) => s.id);
   const pad = isPadMode();
 
-  const currentLessonSlug = state?.currentGame ? findGame(state.currentGame)?.lesson.slug : null;
+  function focusGame(gameSlug: string, lessonSlug: string) {
+    setViewLessonSlug(lessonSlug);
+    setViewGameSlug(gameSlug);
+  }
+
+  function selectLesson(lessonSlug: string) {
+    setViewLessonSlug(lessonSlug);
+    const lesson = COURSE_LESSONS.find((l) => l.slug === lessonSlug);
+    if (!lesson) return;
+    setViewGameSlug((prev) => {
+      if (prev && lesson.games.some((g) => g.slug === prev)) return prev;
+      return lesson.games[0]?.slug ?? null;
+    });
+  }
+
+  useEffect(() => {
+    if (!active || viewGameSlug) return;
+    const lesson = COURSE_LESSONS.find((l) => l.slug === viewLessonSlug);
+    if (lesson?.games[0]) setViewGameSlug(lesson.games[0].slug);
+  }, [active, viewLessonSlug, viewGameSlug]);
 
   const currentLabel = isShowcase
     ? `🌟 展示 ${state?.showcase?.displayName} 的作品`
@@ -287,15 +431,17 @@ export default function TeacherClassroomPage() {
           ? '📺 待机（课件已就绪，学生暂未同步）'
           : '⏳ 等待推送';
 
-  /** 游戏推送区：仅当前环节展开详情与学生作品看板。 */
-  function renderGameCard(game: CourseGame, opts?: { forceCompact?: boolean }) {
+  /** 游戏推送区：按 viewGameSlug 展开详情，可与学生当前环节不同。 */
+  function renderGameCard(game: CourseGame, lessonSlug: string, opts?: { forceCompact?: boolean }) {
     const current = state?.currentGame === game.slug;
-    const compact = opts?.forceCompact || (active && !current);
+    const focused = viewGameSlug === game.slug;
+    const compact = opts?.forceCompact || (active && !focused);
+    const expand = () => focusGame(game.slug, lessonSlug);
 
     if (game.slug === 'group-grab') {
       if (compact) {
         return (
-          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} compact />
+          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} onExpand={expand} compact />
         );
       }
       return (
@@ -346,7 +492,7 @@ export default function TeacherClassroomPage() {
     if (game.slug === 'cancel-subscription') {
       if (compact) {
         return (
-          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} compact />
+          <GameConsoleCard key={game.slug} game={game} current={current} isStandby={isStandby} busy={busy} onPush={() => pushGame(game.slug)} onExpand={expand} compact />
         );
       }
       return (
@@ -402,8 +548,9 @@ export default function TeacherClassroomPage() {
           busy={busy}
           compact={compact}
           onPush={() => pushGame(game.slug)}
+          onExpand={expand}
         >
-          {current && (
+          {focused && (
             <SummaryTeacherPanel
               students={students}
               rosterIds={rosterStudentIds}
@@ -428,12 +575,39 @@ export default function TeacherClassroomPage() {
           busy={busy}
           compact={compact}
           onPush={() => pushGame(game.slug)}
+          onExpand={expand}
         >
-          {current && (
+          {focused && (
             <VideoRecognitionTeacherPanel
               students={students}
               rosterIds={rosterStudentIds}
               session={videoRecognition}
+            />
+          )}
+        </GameConsoleCard>
+      );
+    }
+
+    if (game.slug === 'turing-test') {
+      return (
+        <GameConsoleCard
+          key={game.slug}
+          game={game}
+          current={current}
+          isStandby={isStandby}
+          busy={busy}
+          compact={compact}
+          onPush={() => pushGame(game.slug)}
+          onExpand={expand}
+        >
+          {focused && (
+            <TuringTeacherPanel
+              students={students}
+              rosterIds={rosterStudentIds}
+              turing={turing}
+              busy={busy}
+              onRefresh={refresh}
+              showQuestionBank={false}
             />
           )}
         </GameConsoleCard>
@@ -450,6 +624,7 @@ export default function TeacherClassroomPage() {
         busy={busy}
         compact={compact}
         onPush={() => pushGame(game.slug)}
+        onExpand={expand}
         disabled={game.status === 'placeholder'}
         footnote={
           !trackedSlug && game.status !== 'placeholder'
@@ -457,7 +632,7 @@ export default function TeacherClassroomPage() {
             : undefined
         }
       >
-        {current && trackedSlug && (
+        {focused && trackedSlug && (
           <GameProgressTeacherPanel
             gameSlug={trackedSlug}
             students={students}
@@ -484,10 +659,75 @@ export default function TeacherClassroomPage() {
         <header>
           <h1 className="font-display text-2xl font-extrabold flex items-center gap-2">🎓 课堂控制台</h1>
           <p className="text-slate-600 mt-1 text-sm">
-            开始上课后，在对应环节卡片内查看学生作品并推送。待机时点击 <strong>▶️ 启动环节</strong> 把学生带到该活动。
+            开始上课后，在上方大纲切换课/任务查看控制台，推送后学生才同步。待机时点击 <strong>▶️ 启动环节</strong> 把学生带到该活动。
           </p>
         </header>
       )}
+
+      {/* 选择参与学生（置顶，可按班级筛选） */}
+      <div className="kid-card space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-bold">
+            👧 选择参与的小朋友
+            <span className="text-ink-soft font-semibold ml-1">
+              （{rosterClassId ? '不选 = 本班全员' : '不选 = 全校'} · 将参与 {resolvedRosterCount} 人）
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              className="kid-input max-w-[220px] !py-1.5 text-sm"
+              value={rosterClassId}
+              onChange={(e) => setRosterClassId(e.target.value)}
+            >
+              <option value="">全部学生</option>
+              {classes.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <button onClick={toggleAll} className="kid-button-sm bg-white border-2 border-orange-200 text-ink-soft">
+              {allSelected ? '全不选' : '全选'}
+            </button>
+          </div>
+        </div>
+        {rosterClassId && classStudents.length === 0 && (
+          <p className="text-xs text-amber-700 font-semibold">该班级还没有学生成员，请先到「班级管理」添加，或切换「全部学生」。</p>
+        )}
+        <div className={cn('grid gap-2', pad ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
+          {rosterStudents.map((s) => {
+            const on = !!selected[s.id];
+            return (
+              <button
+                key={s.id}
+                onClick={() => setSelected((p) => ({ ...p, [s.id]: !p[s.id] }))}
+                className={cn(
+                  'text-left rounded-2xl border-2 transition pad-student-tile',
+                  on ? 'border-emerald-400 bg-emerald-50' : 'border-orange-100 bg-white',
+                )}
+              >
+                <div className={cn('font-bold truncate', pad ? 'text-base' : 'text-sm')}>
+                  {on ? '✅ ' : ''}
+                  {s.displayName}
+                </div>
+                <div className="text-[11px] text-ink-soft truncate">@{s.username}</div>
+              </button>
+            );
+          })}
+          {rosterStudents.length === 0 && (
+            <div className="text-sm text-slate-400 col-span-full">还没有可选学生，请先到「学生账号」或「班级管理」添加。</div>
+          )}
+        </div>
+        {!active ? (
+          <button onClick={start} disabled={busy || rosterStudents.length === 0} className="kid-button-primary">
+            🚀 开始上课
+          </button>
+        ) : (
+          <button onClick={updateRoster} disabled={busy} className="kid-button-ghost">
+            🔄 更新参与名单
+          </button>
+        )}
+      </div>
 
       {/* 置顶：状态控制条 + 课程大纲导航，一起随页面滚动始终可见 */}
       <div ref={stickyNavRef} id="teacher-sticky-nav" className="sticky top-0 z-30 space-y-2">
@@ -543,7 +783,13 @@ export default function TeacherClassroomPage() {
                   <button onClick={endClass} disabled={busy} className={cn('kid-button-sm bg-white border-2 border-rose-200 text-rose-600', pad && 'min-h-[48px] px-4 text-sm')}>⏹️ 下课</button>
                 </>
               ) : (
-                <button onClick={start} disabled={busy || students.length === 0} className={cn('kid-button-primary', pad ? '!py-3 !px-6 text-base' : '!py-2 !px-4 text-sm')}>🚀 开始上课</button>
+                <button
+                  onClick={start}
+                  disabled={busy || rosterStudents.length === 0}
+                  className={cn('kid-button-primary', pad ? '!py-3 !px-6 text-base' : '!py-2 !px-4 text-sm')}
+                >
+                  🚀 开始上课
+                </button>
               )}
             </div>
           </div>
@@ -551,9 +797,37 @@ export default function TeacherClassroomPage() {
         </div>
 
         <div className="rounded-2xl border-2 border-orange-100 bg-white/95 backdrop-blur shadow-sm px-3 py-2.5">
-          <TeacherCourseOutlineBar currentGameSlug={state?.currentGame ?? null} pad={pad} />
+          <TeacherCourseOutlineBar
+            currentGameSlug={state?.currentGame ?? null}
+            viewLessonSlug={viewLessonSlug}
+            viewGameSlug={viewGameSlug}
+            onLessonSelect={selectLesson}
+            onGameSelect={focusGame}
+            pad={pad}
+          />
         </div>
       </div>
+
+      <section id="turing-prep" className="kid-card-purple space-y-3 scroll-mt-28" style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}>
+        <button
+          type="button"
+          onClick={() => setTuringPrepOpen((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+        >
+          <div>
+            <div className="text-sm font-bold">🤖 图灵测试 · 课前准备</div>
+            <div className="text-xs text-ink-soft mt-0.5">提前编辑待定题、生成 AI 回答；上课时可在下方「图灵测试小游戏」发布并查看作答。</div>
+          </div>
+          <span className="text-xs font-bold text-violet-700 shrink-0">{turingPrepOpen ? '收起 ▲' : '展开 ▼'}</span>
+        </button>
+        {turingPrepOpen && (
+          <TuringQuestionBank
+            activeSlotId={turing?.active?.slotId}
+            activeQuestion={turing?.active?.question}
+            onPublished={refresh}
+          />
+        )}
+      </section>
 
       {/* ===== 学生实时看板（上课时置顶展示） ===== */}
       {active && isShowcase && state?.showcase && (
@@ -578,23 +852,27 @@ export default function TeacherClassroomPage() {
       {active && (
         <div className="space-y-4">
           {COURSE_LESSONS.map((lesson) => {
-            const isCurrentLesson = !currentLessonSlug || lesson.slug === currentLessonSlug;
-            if (!isCurrentLesson) {
+            const isExpandedLesson = lesson.slug === viewLessonSlug;
+            if (!isExpandedLesson) {
+              const hasLive = state?.currentGame ? lesson.games.some((g) => g.slug === state.currentGame) : false;
               return (
-                <div
+                <button
                   key={lesson.slug}
+                  type="button"
                   id={`lesson-${lesson.slug}`}
-                  className={cn(THEME_CARD[lesson.color], 'px-4 py-3 flex items-center justify-between gap-2 opacity-60')}
+                  onClick={() => selectLesson(lesson.slug)}
+                  className={cn(THEME_CARD[lesson.color], 'w-full px-4 py-3 flex items-center justify-between gap-2 opacity-75 hover:opacity-100 transition text-left')}
                   style={{ scrollMarginTop: 'var(--teacher-sticky-top, 9.5rem)' }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={`w-8 h-8 rounded-xl flex items-center justify-center text-base text-white bg-gradient-to-br ${THEME_GRADIENT[lesson.color]} shrink-0`}>{lesson.emoji}</span>
                     <div className="min-w-0">
                       <div className="font-bold text-sm truncate">第 {lesson.index} 课 · {lesson.title}</div>
-                      <div className="text-[11px] text-ink-soft">已收起 · 在上方大纲切换</div>
+                      <div className="text-[11px] text-ink-soft">点击展开 · 共 {lesson.games.length} 个任务</div>
                     </div>
                   </div>
-                </div>
+                  {hasLive && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5 shrink-0">● live</span>}
+                </button>
               );
             }
 
@@ -613,29 +891,39 @@ export default function TeacherClassroomPage() {
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <div>
                         <div className="text-sm font-bold">🕵️ 第 1 课 · AI 小侦探互动课件</div>
-                        <div className="text-xs text-ink-soft mt-0.5">内置线索、测验、碎片收集；翻页后学生屏幕自动同步。</div>
+                        <div className="text-xs text-ink-soft mt-0.5">内置线索、测验、碎片收集；老师先播放，打开「学生同步」后学生屏幕才跟随。</div>
                       </div>
                       <button onClick={playLesson1Deck} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
-                        ▶️ 向全班播放
+                        ▶️ 播放课件
                       </button>
+                      {isDeck && state?.slides && (
+                        <SlidesSyncToggle
+                          syncToStudents={state.slides.syncToStudents !== false}
+                          busy={busy}
+                          onChange={setSlidesSync}
+                        />
+                      )}
                     </div>
                     {isDeck && state?.slides ? (
                       <div className="space-y-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <button onClick={() => flipPage(-1)} disabled={busy || state.slides.page <= 1} className="kid-button-sm bg-white border-2 border-orange-200 disabled:opacity-50">⬅️ 上一页</button>
-                          <span className="tag">第 {state.slides.page} 页 · 同步中</span>
+                          <span className="tag">
+                            第 {state.slides.page} 页
+                            {state.slides.syncToStudents !== false ? ' · 学生同步中' : ' · 仅老师播放'}
+                          </span>
                           <button onClick={() => flipPage(1)} disabled={busy} className="kid-button-sm bg-white border-2 border-orange-200">下一页 ➡️</button>
                         </div>
                         <DetectiveDeckFrame mode="present" page={state.slides.page} onPageChange={syncDeckPageFromIframe} />
                       </div>
                     ) : (
-                      <p className="text-sm text-ink-soft">点击「向全班播放」后，在这里演示完整第一节课。</p>
+                      <p className="text-sm text-ink-soft">点击「播放课件」后，在这里演示；准备好再打开「学生同步」。</p>
                     )}
                   </div>
                 )}
 
                 <div className="space-y-2">
-                  {lesson.games.map((g) => renderGameCard(g))}
+                  {lesson.games.map((g) => renderGameCard(g, lesson.slug))}
                 </div>
               </div>
             );
@@ -656,7 +944,7 @@ export default function TeacherClassroomPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                {lesson.games.map((g) => renderGameCard(g))}
+                {lesson.games.map((g) => renderGameCard(g, lesson.slug))}
               </div>
             </div>
           ))}
@@ -682,38 +970,6 @@ export default function TeacherClassroomPage() {
         </div>
       )}
 
-      {/* 选择学生 */}
-      <div className="kid-card space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-bold">👧 选择参与的小朋友（不选 = 全班）</div>
-          <button onClick={toggleAll} className="kid-button-sm bg-white border-2 border-orange-200 text-ink-soft">{allSelected ? '全不选' : '全选'}</button>
-        </div>
-        <div className={cn('grid gap-2', pad ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4')}>
-          {students.map((s) => {
-            const on = !!selected[s.id];
-            return (
-              <button
-                key={s.id}
-                onClick={() => setSelected((p) => ({ ...p, [s.id]: !p[s.id] }))}
-                className={cn(
-                  'text-left rounded-2xl border-2 transition pad-student-tile',
-                  on ? 'border-emerald-400 bg-emerald-50' : 'border-orange-100 bg-white',
-                )}
-              >
-                <div className={cn('font-bold truncate', pad ? 'text-base' : 'text-sm')}>{on ? '✅ ' : ''}{s.displayName}</div>
-                <div className="text-[11px] text-ink-soft truncate">@{s.username}</div>
-              </button>
-            );
-          })}
-          {students.length === 0 && <div className="text-sm text-slate-400 col-span-full">还没有学生账号，请先到「学生账号」创建。</div>}
-        </div>
-        {!active ? (
-          <button onClick={start} disabled={busy} className="kid-button-primary">🚀 开始上课</button>
-        ) : (
-          <button onClick={updateRoster} disabled={busy} className="kid-button-ghost">🔄 更新参与名单</button>
-        )}
-      </div>
-
       {/* PDF 课件播放面板（通用工具，不挂在具体某节课下） */}
       <div className={`kid-card space-y-3 ${active ? '' : 'opacity-50 pointer-events-none'}`}>
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -736,8 +992,22 @@ export default function TeacherClassroomPage() {
               <button onClick={() => flipPage(-1)} disabled={busy || state.slides.page <= 1} className="kid-button-sm bg-white border-2 border-orange-200 disabled:opacity-50">⬅️ 上一页</button>
               <span className="tag">第 {state.slides.page} 页</span>
               <button onClick={() => flipPage(1)} disabled={busy} className="kid-button-sm bg-white border-2 border-orange-200">下一页 ➡️</button>
-              {!isSlides && <button onClick={playSlides} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">▶️ 切换到课件播放</button>}
-              {isSlides && <span className="text-xs font-bold text-emerald-600">● 正在向学生播放</span>}
+              <SlidesSyncToggle
+                syncToStudents={state.slides.syncToStudents !== false}
+                busy={busy}
+                onChange={setSlidesSync}
+              />
+              {!isSlides && (
+                <button onClick={playSlides} disabled={busy} className="kid-button-primary !py-2 !px-4 text-sm">
+                  ▶️ 播放课件
+                </button>
+              )}
+              {isSlides && state.slides.syncToStudents !== false && (
+                <span className="text-xs font-bold text-emerald-600">● 学生同步中</span>
+              )}
+              {isSlides && state.slides.syncToStudents === false && (
+                <span className="text-xs font-bold text-orange-600">● 仅老师播放</span>
+              )}
             </div>
             <PdfSinglePage
               key={`${state.slides.url}-${state.slides.page}`}
@@ -752,7 +1022,7 @@ export default function TeacherClassroomPage() {
       </div>
 
       <div className="text-xs text-ink-soft">
-        提示：图灵测试的题目仍在 <Link href="/teacher/turing" className="text-brand underline">图灵测试出题</Link> 里准备；这里负责把学生屏幕带到对应游戏。
+        提示：图灵测试可在上方「课前准备」编辑待定题，在「图灵测试小游戏」卡片内发布并查看现场作答。
       </div>
 
       <ReturnToStandbyFab
@@ -762,6 +1032,16 @@ export default function TeacherClassroomPage() {
         hasSlides={!!state?.slides?.url}
         onReturn={returnToStandby}
         pad={pad}
+      />
+
+      <CampSongFab
+        active={active}
+        campSong={state?.campSong ?? null}
+        busy={busy}
+        pad={pad}
+        onStart={startCampSong}
+        onStop={stopCampSong}
+        onSetSyncStudents={setCampSongSync}
       />
     </div>
   );

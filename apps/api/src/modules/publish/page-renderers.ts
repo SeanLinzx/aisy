@@ -38,7 +38,7 @@ export interface GrowthData {
   assets: number;
   jobs: number;
   submissions: Array<{ taskTitle: string; status: string; createdAt: Date }>;
-  recent: Array<{ title: string; type: string; url: string | null; createdAt: Date }>;
+  recent: Array<{ title: string; type: string; url: string | null; thumbnailUrl?: string | null; createdAt: Date }>;
   /** 成长手册：课堂问答 / 游戏记录 / 分享等 */
   records?: GrowthRecordItem[];
   /** 参与的课程/班级 */
@@ -93,6 +93,171 @@ function fmtDate(d: Date): string {
   return `${mm}-${dd} ${hh}:${mi}`;
 }
 
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|mov)(\?|$)/i.test(url);
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(jpg|jpeg|png|gif|webp|svg|bmp|avif)(\?|$)/i.test(url) || /\/uploads\//i.test(url);
+}
+
+function isWebPageUrl(url: string): boolean {
+  const u = url.trim();
+  return /(?:^|\/)p\/[a-zA-Z0-9_-]+(?:\?|$|\/)/.test(u);
+}
+
+function renderResilientImage(src: string, alt = '', extraStyle = ''): string {
+  const safe = escapeAttr(src);
+  return `<img src="${safe}" alt="${escapeAttr(alt)}" loading="lazy" data-retry-src="${safe}" style="${extraStyle}">`;
+}
+
+function renderLightboxImage(src: string, alt = ''): string {
+  const safe = escapeAttr(src);
+  return `<button type="button" class="lightbox-trigger" data-lightbox="${safe}" aria-label="放大查看">
+  ${renderResilientImage(src, alt, 'width:100%;height:100%;object-fit:cover;display:block')}
+</button>`;
+}
+
+function renderRecentAssetCard(a: { title: string; type: string; url: string | null; thumbnailUrl?: string | null }): string {
+  const meta = ASSET_TYPE_META[a.type];
+  const badge = meta ? `<span class="asset-badge">${meta.emoji}</span>` : '';
+
+  if (a.type === 'web' && a.url) {
+    const href = escapeAttr(a.url);
+    const thumb = a.thumbnailUrl || null;
+    const inner = thumb
+      ? renderResilientImage(thumb, '', 'width:100%;height:100%;object-fit:cover')
+      : `<span class="web-link-emoji">🔗</span><span class="web-link-title">${escapeHtml(a.title)}</span>`;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="asset-web-link" title="${escapeAttr(a.title)}">${inner}${badge}<span class="web-link-hint">点击查看 →</span></a>`;
+  }
+
+  const mediaUrl = a.url;
+  if (mediaUrl && a.type === 'video') {
+    return `<div class="asset-thumb">${`<video src="${escapeAttr(mediaUrl)}" muted playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover"></video>`}${badge}</div>`;
+  }
+
+  if (mediaUrl && (a.type === 'image' || a.type === 'poster' || isImageUrl(mediaUrl))) {
+    return `<div class="asset-thumb">${renderLightboxImage(mediaUrl, a.title)}${badge}</div>`;
+  }
+
+  const inner = `<span style="font-size:11px;padding:6px;text-align:center;color:#64748b">${escapeHtml(a.title)}</span>`;
+  return `<div class="asset-thumb asset-thumb--text">${inner}${badge}</div>`;
+}
+
+function renderRecordMedia(mediaUrl: string): string {
+  if (isVideoUrl(mediaUrl)) {
+    return `<video src="${escapeAttr(mediaUrl)}" controls playsinline class="rec-media rec-media--video"></video>`;
+  }
+  if (isWebPageUrl(mediaUrl)) {
+    return `<a href="${escapeAttr(mediaUrl)}" target="_blank" rel="noopener noreferrer" class="rec-web-link">🔗 打开交互作品 <span>→</span></a>`;
+  }
+  return `<div class="rec-media rec-media--image">${renderLightboxImage(mediaUrl)}</div>`;
+}
+
+const IMAGE_RETRY_SCRIPT = `
+<script>
+(function () {
+  var MAX_RETRIES = 10;
+  var BASE_DELAY = 1500;
+  function retryImg(img) {
+    var src = img.getAttribute('data-retry-src') || img.getAttribute('src') || '';
+    if (!src) return;
+    var count = parseInt(img.getAttribute('data-retry-count') || '0', 10);
+    if (count >= MAX_RETRIES) return;
+    img.setAttribute('data-retry-count', String(count + 1));
+    var delay = Math.min(BASE_DELAY * Math.pow(1.4, count), 12000);
+    img.style.opacity = '0.45';
+    img.style.background = '#f1f5f9';
+    setTimeout(function () {
+      var bust = src + (src.indexOf('?') >= 0 ? '&' : '?') + '_retry=' + count + '&_t=' + Date.now();
+      img.src = bust;
+    }, delay);
+  }
+  function onImgError(e) {
+    var img = e.target;
+    if (img && img.tagName === 'IMG') retryImg(img);
+  }
+  function onImgLoad(e) {
+    var img = e.target;
+    if (img && img.tagName === 'IMG') {
+      img.style.opacity = '';
+      img.style.background = '';
+      img.removeAttribute('data-retry-count');
+    }
+  }
+  document.addEventListener('error', onImgError, true);
+  document.addEventListener('load', onImgLoad, true);
+  document.querySelectorAll('video[preload]').forEach(function (v) {
+    v.addEventListener('loadedmetadata', function () {
+      if (v.currentTime < 0.05) v.currentTime = 0.1;
+    });
+  });
+})();
+</script>`;
+
+const GROWTH_PAGE_INTERACTIVITY = `
+<div id="growth-lightbox" class="growth-lightbox" hidden aria-hidden="true">
+  <button type="button" class="growth-lightbox__close" aria-label="关闭">✕</button>
+  <img id="growth-lightbox-img" class="growth-lightbox__img" src="" alt="">
+</div>
+<script>
+(function () {
+  var box = document.getElementById('growth-lightbox');
+  var img = document.getElementById('growth-lightbox-img');
+  if (!box || !img) return;
+  function openLightbox(src) {
+    img.src = src;
+    box.hidden = false;
+    box.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLightbox() {
+    box.hidden = true;
+    box.setAttribute('aria-hidden', 'true');
+    img.removeAttribute('src');
+    document.body.style.overflow = '';
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target;
+    if (!(t instanceof Element)) return;
+    var btn = t.closest('[data-lightbox]');
+    if (btn) {
+      e.preventDefault();
+      var src = btn.getAttribute('data-lightbox');
+      if (src) openLightbox(src);
+      return;
+    }
+    if (t === box || t.closest('.growth-lightbox__close')) closeLightbox();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !box.hidden) closeLightbox();
+  });
+})();
+</script>`;
+
+const GROWTH_PAGE_INTERACTIVITY_STYLES = `
+  .asset-thumb { position: relative; aspect-ratio: 1; background: #fff; border-radius: 12px; overflow: hidden; border: 2px solid #e2e8f0; }
+  .asset-thumb--text { display: flex; align-items: center; justify-content: center; }
+  .lightbox-trigger { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+  .lightbox-trigger img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity .2s; }
+  .asset-web-link { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; aspect-ratio: 1; background: linear-gradient(135deg,#ede9fe,#fce7f3); border-radius: 12px; overflow: hidden; border: 2px solid #c4b5fd; text-decoration: none; color: #5b21b6; padding: 10px; text-align: center; transition: transform .15s, box-shadow .15s; }
+  .asset-web-link:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(91,33,182,.15); }
+  .asset-web-link img { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; opacity: .92; }
+  .web-link-emoji { font-size: 28px; line-height: 1; }
+  .web-link-title { font-size: 11px; font-weight: 700; line-height: 1.35; padding: 0 4px; }
+  .web-link-hint { position: absolute; bottom: 6px; left: 6px; right: 6px; font-size: 10px; font-weight: 700; background: rgba(255,255,255,.92); border-radius: 999px; padding: 3px 8px; color: #7c3aed; }
+  .rec-media { width: 100%; max-height: 220px; border-radius: 10px; margin-top: 8px; overflow: hidden; }
+  .rec-media--video { background: #000; }
+  .rec-media--image .lightbox-trigger { max-height: 220px; cursor: zoom-in; }
+  .rec-media--image img { width: 100%; max-height: 220px; object-fit: cover; display: block; border-radius: 10px; }
+  .rec-web-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 10px 14px; background: linear-gradient(135deg,#ede9fe,#fce7f3); border-radius: 12px; text-decoration: none; color: #5b21b6; font-weight: 700; font-size: 13px; border: 2px solid #ddd6fe; }
+  .rec-web-link span { color: #7c3aed; }
+  .growth-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(15,23,42,.88); display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+  .growth-lightbox[hidden] { display: none !important; }
+  .growth-lightbox__img { max-width: min(960px, 100%); max-height: calc(100vh - 48px); object-fit: contain; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+  .growth-lightbox__close { position: absolute; top: 16px; right: 16px; width: 40px; height: 40px; border: 0; border-radius: 999px; background: rgba(255,255,255,.95); color: #334155; font-size: 18px; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+`;
+
 export function renderCourseHomePage(data: CourseHomeData): string {
   if (data.featuredHtml) {
     return data.featuredHtml;
@@ -101,9 +266,14 @@ export function renderCourseHomePage(data: CourseHomeData): string {
     .slice(0, 12)
     .map((a) => {
       const thumb = a.thumbnailUrl || a.url;
-      const inner = thumb && (a.type === 'image' || a.type === 'poster')
-        ? `<img src="${escapeAttr(thumb)}" alt="" style="width:100%;height:100%;object-fit:cover">`
-        : `<span style="font-size:12px;color:#64748b;padding:8px;text-align:center">${escapeHtml(a.title)}</span>`;
+      let inner: string;
+      if (thumb && a.type === 'video') {
+        inner = `<video src="${escapeAttr(thumb)}" muted playsinline preload="metadata" style="width:100%;height:100%;object-fit:cover"></video>`;
+      } else if (thumb && (a.type === 'image' || a.type === 'poster' || isImageUrl(thumb))) {
+        inner = renderResilientImage(thumb, '', 'width:100%;height:100%;object-fit:cover');
+      } else {
+        inner = `<span style="font-size:12px;color:#64748b;padding:8px;text-align:center">${escapeHtml(a.title)}</span>`;
+      }
       return `<div style="aspect-ratio:1;background:#fff7ed;border-radius:16px;overflow:hidden;border:2px solid #fed7aa;display:flex;align-items:center;justify-content:center">${inner}</div>`;
     })
     .join('');
@@ -136,22 +306,12 @@ export function renderCourseHomePage(data: CourseHomeData): string {
   ${webLinks ? `<h2>🌐 我的网页</h2>${webLinks}` : ''}
 </div>
 <div class="footer">${escapeHtml(data.ownerName)} · <a href="/" style="color:#0ea5e9">AI Camp</a></div>
+${IMAGE_RETRY_SCRIPT}
 </body></html>`;
 }
 
 export function renderGrowthPage(data: GrowthData): string {
-  const recentCards = data.recent
-    .map((a) => {
-      const meta = ASSET_TYPE_META[a.type];
-      const inner = a.url && (a.type === 'image' || a.type === 'poster' || a.type === 'video')
-        ? (a.type === 'video'
-          ? `<video src="${escapeAttr(a.url)}" muted style="width:100%;height:100%;object-fit:cover"></video>`
-          : `<img src="${escapeAttr(a.url)}" alt="" style="width:100%;height:100%;object-fit:cover">`)
-        : `<span style="font-size:11px;padding:6px;text-align:center;color:#64748b">${escapeHtml(a.title)}</span>`;
-      const badge = meta ? `<span class="asset-badge">${meta.emoji}</span>` : '';
-      return `<div style="position:relative;aspect-ratio:1;background:#fff;border-radius:12px;overflow:hidden;border:2px solid #e2e8f0">${inner}${badge}</div>`;
-    })
-    .join('');
+  const recentCards = data.recent.map((a) => renderRecentAssetCard(a)).join('');
 
   const classCards = (data.classes || [])
     .map(
@@ -192,11 +352,7 @@ export function renderGrowthPage(data: GrowthData): string {
   const bookCards = records
     .map((r) => {
       const meta = GROWTH_KIND_META[r.kind] || { emoji: '⭐', label: '记录', color: '#64748b' };
-      const media = r.mediaUrl
-        ? /\.(mp4|webm|mov)(\?|$)/i.test(r.mediaUrl)
-          ? `<video src="${escapeAttr(r.mediaUrl)}" controls playsinline style="width:100%;max-height:220px;border-radius:10px;background:#000;margin-top:8px"></video>`
-          : `<img src="${escapeAttr(r.mediaUrl)}" alt="" style="width:100%;max-height:220px;object-fit:cover;border-radius:10px;margin-top:8px">`
-        : '';
+      const media = r.mediaUrl ? renderRecordMedia(r.mediaUrl) : '';
       return `<div class="rec">
   <div class="rec-head">
     <span class="rec-tag" style="background:${meta.color}18;color:${meta.color}">${meta.emoji} ${escapeHtml(meta.label)}</span>
@@ -246,6 +402,7 @@ export function renderGrowthPage(data: GrowthData): string {
   .game-emoji { font-size: 26px; }
   .game-name { font-weight: 700; font-size: 13px; }
   .game-sub { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+${GROWTH_PAGE_INTERACTIVITY_STYLES}
 </style>
 </head>
 <body>
@@ -266,6 +423,8 @@ export function renderGrowthPage(data: GrowthData): string {
   ${timeline ? `<h2>📋 任务记录</h2><ul>${timeline}</ul>` : ''}
 </div>
 <div class="footer"><a href="/" style="color:#0ea5e9;text-decoration:none">AI Camp</a></div>
+${GROWTH_PAGE_INTERACTIVITY}
+${IMAGE_RETRY_SCRIPT}
 </body></html>`;
 }
 

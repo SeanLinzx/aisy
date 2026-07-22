@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { downloadMedia, copyText, buildVideoPageHref } from '@/lib/media-actions';
 import { resolveUploadPath, resolveVideoPlaybackUrl } from '@/lib/upload-url';
+import { useLanguage } from '@/contexts/language-context';
 
 export function ImageResultActions({
   url,
@@ -22,6 +23,7 @@ export function ImageResultActions({
   onSave?: () => void;
   saving?: boolean;
 }) {
+  const { tx } = useLanguage();
   const [copied, setCopied] = useState(false);
 
   async function copyLink() {
@@ -36,21 +38,21 @@ export function ImageResultActions({
     <div className="flex flex-wrap gap-2 mt-3">
       <button
         type="button"
-        onClick={() => void downloadMedia(url, `${title || 'AI图片'}.png`)}
+        onClick={() => void downloadMedia(url, `${title || tx('AI图片')}.png`)}
         className="kid-button-sm bg-brand text-white border-2 border-brand text-xs"
       >
-        ⬇ 保存图片
+        {tx('⬇ 保存图片')}
       </button>
       <Link
         href={buildVideoPageHref(url, fromCourse, lessonSlug)}
         className="kid-button-sm bg-violet-500 text-white border-2 border-violet-500 text-xs inline-flex items-center"
       >
-        🎬 去生成视频
+        {tx('🎬 去生成视频')}
       </Link>
       {savedToLibrary || !onSave ? (
         savedToLibrary && (
           <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
-            ✅ 已存入素材库
+            {tx('✅ 已存入素材库')}
           </span>
         )
       ) : (
@@ -60,7 +62,7 @@ export function ImageResultActions({
           disabled={saving}
           className="kid-button-sm bg-emerald-500 text-white border-2 border-emerald-500 text-xs"
         >
-          {saving ? '保存中…' : '💾 保存到素材库'}
+          {saving ? tx('保存中…') : tx('💾 保存到素材库')}
         </button>
       )}
       <button
@@ -68,7 +70,7 @@ export function ImageResultActions({
         onClick={() => void copyLink()}
         className="kid-button-sm bg-white border-2 border-sky-200 text-sky-700 text-xs"
       >
-        {copied ? '✅ 已复制链接' : '📋 复制图片链接'}
+        {copied ? tx('✅ 已复制链接') : tx('📋 复制图片链接')}
       </button>
     </div>
   );
@@ -89,6 +91,7 @@ export function VideoResultActions({
   onSave?: () => void;
   saving?: boolean;
 }) {
+  const { tx } = useLanguage();
   const [copied, setCopied] = useState(false);
   const fullUrl = resolveVideoPlaybackUrl(url);
 
@@ -104,14 +107,14 @@ export function VideoResultActions({
     <div className="flex flex-wrap gap-2 mt-3">
       <button
         type="button"
-        onClick={() => void downloadMedia(url, `${title || 'AI视频'}.mp4`)}
+        onClick={() => void downloadMedia(url, `${title || tx('AI视频')}.mp4`)}
         className="kid-button-sm bg-brand text-white border-2 border-brand text-xs"
       >
-        ⬇ 保存视频
+        {tx('⬇ 保存视频')}
       </button>
       {savedToLibrary || assetId ? (
         <span className="inline-flex items-center text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-1.5">
-          ✅ 已存入素材库
+          {tx('✅ 已存入素材库')}
         </span>
       ) : onSave ? (
         <button
@@ -120,11 +123,11 @@ export function VideoResultActions({
           disabled={saving}
           className="kid-button-sm bg-emerald-500 text-white border-2 border-emerald-500 text-xs"
         >
-          {saving ? '保存中…' : '💾 保存到素材库'}
+          {saving ? tx('保存中…') : tx('💾 保存到素材库')}
         </button>
       ) : (
         <span className="inline-flex items-center text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-1.5">
-          💾 正在写入素材库…
+          {tx('💾 正在写入素材库…')}
         </span>
       )}
       <button
@@ -132,7 +135,7 @@ export function VideoResultActions({
         onClick={() => void copyLink()}
         className="kid-button-sm bg-white border-2 border-sky-200 text-sky-700 text-xs"
       >
-        {copied ? '✅ 已复制链接' : '📋 复制视频链接'}
+        {copied ? tx('✅ 已复制链接') : tx('📋 复制视频链接')}
       </button>
       <a
         href={fullUrl}
@@ -140,7 +143,7 @@ export function VideoResultActions({
         rel="noopener noreferrer"
         className="kid-button-sm bg-white border-2 border-slate-200 text-ink-soft text-xs inline-flex items-center"
       >
-        ↗ 新窗口播放
+        {tx('↗ 新窗口播放')}
       </a>
     </div>
   );

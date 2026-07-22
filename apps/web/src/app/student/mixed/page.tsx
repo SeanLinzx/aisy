@@ -4,8 +4,10 @@ import { api } from '@/lib/api';
 import { AiWarning } from '@/components/ai-warning';
 import { AiProgress } from '@/components/course/ai-progress';
 import { ExploreToolHeader } from '@/components/explore-tool-header';
+import { useLanguage } from '@/contexts/language-context';
 
 export default function MixedPage() {
+  const { tx } = useLanguage();
   const [prompt, setPrompt] = useState('请告诉我这张图里有什么？');
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -25,7 +27,7 @@ export default function MixedPage() {
   }
 
   async function gen() {
-    if (!prompt.trim() || !imageUrl) { setError('请先上传或填入图片 URL'); return; }
+    if (!prompt.trim() || !imageUrl) { setError(tx('请先上传或填入图片 URL')); return; }
     setLoading(true); setError(null); setText('');
     try {
       const r = await api.post('/ai-generate/mixed', {
@@ -40,39 +42,39 @@ export default function MixedPage() {
 
   return (
     <div className="space-y-6">
-      <ExploreToolHeader title="🧠 图文理解 / 多模态" desc="上传一张图片，让 AI 看一看并回答你的问题。" />
+      <ExploreToolHeader title={tx('🧠 图文理解 / 多模态')} desc={tx('上传一张图片，让 AI 看一看并回答你的问题。')} />
 
       <div className="kid-card space-y-4">
         <div>
-          <label className="text-sm font-semibold">第一步：选一张图片</label>
+          <label className="text-sm font-semibold">{tx('第一步：选一张图片')}</label>
           <div className="mt-2 flex gap-3 items-center">
             <input type="file" accept="image/*" ref={fileRef} className="hidden"
               onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0])} />
             <button onClick={() => fileRef.current?.click()} disabled={uploading} className="kid-button-ghost">
-              {uploading ? '上传中…' : '📤 上传图片'}
+              {uploading ? tx('上传中…') : tx('📤 上传图片')}
             </button>
-            <span className="text-xs text-slate-400">或粘贴图片 URL：</span>
+            <span className="text-xs text-slate-400">{tx('或粘贴图片 URL：')}</span>
             <input className="kid-input flex-1" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://..." />
           </div>
           {imageUrl && <img src={imageUrl} alt="upload" className="mt-3 max-h-64 rounded-xl border border-orange-100" />}
         </div>
 
         <div>
-          <label className="text-sm font-semibold">第二步：你想问什么？</label>
+          <label className="text-sm font-semibold">{tx('第二步：你想问什么？')}</label>
           <textarea className="kid-textarea" value={prompt} onChange={(e) => setPrompt(e.target.value)} />
         </div>
 
         <button onClick={gen} disabled={loading || !imageUrl} className="kid-button-primary">
-          {loading ? '思考中…' : '让 AI 看一看'}
+          {loading ? tx('思考中…') : tx('让 AI 看一看')}
         </button>
-        {loading && <AiProgress label="AI 正在仔细看图…" />}
+        {loading && <AiProgress label={tx('AI 正在仔细看图…')} />}
         {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>}
       </div>
 
       {(text || loading) && (
         <div className="kid-card">
-          <h3 className="font-semibold mb-3">AI 回答</h3>
-          {loading && <div className="text-slate-500 text-sm">⏳ AI 正在仔细看图…</div>}
+          <h3 className="font-semibold mb-3">{tx('AI 回答')}</h3>
+          {loading && <div className="text-slate-500 text-sm">{tx('⏳ AI 正在仔细看图…')}</div>}
           {text && <pre className="whitespace-pre-wrap font-sans text-slate-800 leading-relaxed">{text}</pre>}
           {text && <div className="mt-4"><AiWarning /></div>}
         </div>

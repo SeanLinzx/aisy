@@ -1,8 +1,13 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { PublishedPageLink } from '@/components/published-page-link';
+import { publishPath, extractPublishSlug } from '@/lib/public-url';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import { AI_GENERATE_WEB_PROGRESS_ESTIMATE, AI_GENERATE_WEB_PROGRESS_MS, AI_GENERATE_WEB_TIMEOUT_MS } from '@/lib/ai-generate-timeouts';
 import { AiWarning } from '@/components/ai-warning';
 import { AiProgress } from '@/components/course/ai-progress';
 import { FillBlankSentence } from '@/components/course/fill-blank-sentence';
@@ -12,11 +17,18 @@ import {
   LAYOUT_TEMPLATE,
   SCENE_TEMPLATE,
   buildFreeformPrompt,
+  loadFreeformAppLocal,
   loadFreeformAppState,
   mergeWebHtml,
   persistFreeformApp,
+  saveFreeformAppLocal,
   type FreeformForm,
 } from './freeform-app-shared';
+import { finalizeKidWebHtml } from '@/lib/web-upload-block';
+import { readKidLocalDraft } from '@/lib/kid-app-local-draft';
+import { FREEFORM_APP_LOCAL_KEY } from './freeform-app-shared';
+import { KidLocalDraftHint } from '@/components/course/kid-local-draft-hint';
+import { formatKidLocalDraftHint, useKidLocalDraftSaver } from '@/lib/kid-app-local-draft';
 
 const CONFIG_STEPS = [
   {
@@ -46,6 +58,7 @@ const CONFIG_STEPS = [
 ] as const;
 
 export function FreeformAppGame() {
+  const { tx } = useLanguage();
   const router = useRouter();
   const [form, setForm] = useState<FreeformForm>(DEFAULT_FORM);
   const [step, setStep] = useState(0);
@@ -55,22 +68,43 @@ export function FreeformAppGame() {
   const [hasSaved, setHasSaved] = useState(false);
   const [pageUrl, setPageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
-  function setField(key: keyof FreeformForm, value: string) {
+  const { hint: draftHint } = useKidLocalDraftSaver({
+    storageKey: FREEFORM_APP_LOCAL_KEY,
+    enabled: hydrated,
+    data: { form, step, html: '', projectId, assetId, slug: extractPublishSlug(pageUrl) },
+  });
+
+  function setField(key: keyof FreeformForm, value: string | boolean) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setError(null);
   }
 
   useEffect(() => {
+    const localEnv = readKidLocalDraft<{ form: FreeformForm; step: number }>(FREEFORM_APP_LOCAL_KEY);
     loadFreeformAppState()
       .then((state) => {
-        setForm(state.form);
-        setProjectId(state.projectId);
-        setAssetId(state.assetId);
+        const local = loadFreeformAppLocal();
+        const preferLocal =
+          local &&
+          localEnv &&
+          (!state.hasSaved || localEnv.savedAt > Date.now() - 7 * 24 * 3600_000);
+        if (preferLocal && local) {
+          setForm(local.form);
+          setStep(local.step ?? 0);
+          setProjectId(local.projectId ?? state.projectId);
+          setAssetId(local.assetId ?? state.assetId);
+        } else {
+          setForm(state.form);
+          setProjectId(state.projectId);
+          setAssetId(state.assetId);
+        }
         setHasSaved(state.hasSaved);
-        if (state.slug) setPageUrl(`/p/${state.slug}`);
+        if (state.slug) setPageUrl(publishPath(state.slug));
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setHydrated(true));
   }, []);
 
   function validateStep(index: number) {
@@ -95,13 +129,24 @@ export function FreeformAppGame() {
     setError(null);
     try {
       const prompt = buildFreeformPrompt(form);
-      const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: 180_000 });
-      const merged = mergeWebHtml({ html: r.data.html || '', css: r.data.css || '', js: r.data.js || '' });
+      const r = await api.post('/ai-generate/web', { prompt, interactive: true, aiCamp: true }, { timeout: AI_GENERATE_WEB_TIMEOUT_MS });
+      const merged = finalizeKidWebHtml(
+        mergeWebHtml({ html: r.data.html || '', css: r.data.css || '', js: r.data.js || '' }),
+        { enableImageUpload: form.enableImageUpload },
+      );
 
       const persisted = await persistFreeformApp({ htmlContent: merged, form, projectId, assetId });
       setProjectId(persisted.projectId);
       setAssetId(persisted.assetId);
       setHasSaved(true);
+      saveFreeformAppLocal({
+        form,
+        step,
+        html: merged,
+        projectId: persisted.projectId,
+        assetId: persisted.assetId,
+        slug: persisted.slug,
+      });
 
       router.push('/studio/freeform-app');
     } catch (e: unknown) {
@@ -119,21 +164,23 @@ export function FreeformAppGame() {
     <div className="space-y-3 max-h-[calc(100vh-8rem)] flex flex-col">
       <div className="kid-card-yellow !p-4 shrink-0">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🪄 分三步完成：先在<b>输入框</b>里自由写下场景、布局、交互，AI 会帮你做成小应用。没想好？可以点「参考词」找灵感，也可以完全自己写！
+          🪄 分三步完成：先在<b>{tx('输入框')}</b>里自由写下场景、布局、交互，AI 会帮你做成小应用。填写内容会<b>自动保存到本机</b>，下次打开可继续编辑。
         </p>
       </div>
 
+      <KidLocalDraftHint hint={draftHint} />
+
       {hasSaved && (
         <div className="kid-card-mint !p-3 space-y-2 shrink-0">
-          <div className="font-extrabold text-emerald-800 text-sm">✅ 你已有一个 AI 小应用</div>
+          <div className="font-extrabold text-emerald-800 text-sm">{tx('✅ 你已有一个 AI 小应用')}</div>
           <div className="flex flex-wrap gap-2">
             <Link href="/studio/freeform-app" className="kid-button-primary !py-2 !px-4 text-sm">
               🔄 进入预览与修改页
             </Link>
             {pageUrl && (
-              <Link href={pageUrl} target="_blank" className="kid-button-ghost !py-2 !px-4 text-sm">
+              <PublishedPageLink href={pageUrl} className="kid-button-ghost !py-2 !px-4 text-sm">
                 🌐 打开我的小应用
-              </Link>
+              </PublishedPageLink>
             )}
           </div>
         </div>
@@ -208,12 +255,12 @@ export function FreeformAppGame() {
         </div>
         {busy && (
           <AiProgress
-            label="AI 正在按你的场景/布局/交互制作小应用…"
-            estimate="预计约 1 分钟"
-            durationMs={60_000}
+            label={tx('AI 正在按你的场景/布局/交互制作小应用…')}
+            estimate={AI_GENERATE_WEB_PROGRESS_ESTIMATE}
+            durationMs={AI_GENERATE_WEB_PROGRESS_MS}
           />
         )}
-        {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>}
+        {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{tx(error)}</div>}
       </div>
       <AiWarning />
     </div>

@@ -185,17 +185,6 @@ export function WebInteractionBuilder({
         <p className="text-sm text-violet-900 leading-relaxed break-words whitespace-normal">{currentRule}</p>
       </div>
 
-      {layers.length > 0 && (
-        <div className="rounded-xl bg-emerald-50 border-2 border-emerald-100 px-3 py-2 space-y-1.5">
-          <div className="text-xs font-bold text-emerald-800">✅ 已叠加的交互（{layers.length} 条）</div>
-          {layers.map((l, i) => (
-            <div key={`${l.target}-${i}`} className="text-xs text-emerald-900 leading-relaxed break-words whitespace-normal">
-              {i + 1}. {interactionRuleSentence(l)}
-            </div>
-          ))}
-        </div>
-      )}
-
       <button type="button" onClick={onAddInteraction} disabled={busy} className="kid-button-primary w-full">
         {busy ? '✨ AI 正在加交互…' : layers.length > 0 ? '➕ 再叠加一条交互' : '✨ 添加第一条交互'}
       </button>

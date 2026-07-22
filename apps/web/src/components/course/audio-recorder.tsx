@@ -1,6 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/contexts/language-context';
 
 /**
  * 录音组件：MediaRecorder 录音 → 上传 /storage/upload → 回传公网 URL。
@@ -13,6 +14,7 @@ export function AudioRecorder({
   onUploaded: (url: string) => void;
   label?: string;
 }) {
+  const { tx } = useLanguage();
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -39,7 +41,7 @@ export function AudioRecorder({
       recRef.current = rec;
       setRecording(true);
     } catch (e: any) {
-      setError(e?.message || '无法访问麦克风');
+      setError(e?.message || tx('无法访问麦克风'));
     }
   }
 
@@ -57,14 +59,14 @@ export function AudioRecorder({
       const r = await api.post('/storage/upload', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       if (r.data?.url) onUploaded(r.data.url);
     } catch (e: any) {
-      setError(e?.message || '上传失败');
+      setError(e?.message || tx('上传失败'));
     } finally {
       setUploading(false);
     }
   }
 
   if (!supported) {
-    return <div className="text-xs text-slate-400">当前浏览器不支持录音（请使用 Chrome / Edge）。</div>;
+    return <div className="text-xs text-slate-400">{tx('当前浏览器不支持录音（请使用 Chrome / Edge）。')}</div>;
   }
 
   return (
@@ -78,7 +80,7 @@ export function AudioRecorder({
             recording ? 'bg-rose-500 text-white border-rose-500 animate-pulse' : 'bg-white text-ink-soft border-orange-200 hover:bg-orange-50'
           }`}
         >
-          {recording ? '⏹️ 停止录音' : uploading ? '⏳ 上传中…' : `🎙️ ${label}`}
+          {recording ? tx('⏹️ 停止录音') : uploading ? tx('⏳ 上传中…') : `🎙️ ${tx(label)}`}
         </button>
         {previewUrl && !recording && <audio src={previewUrl} controls className="h-8" />}
       </div>

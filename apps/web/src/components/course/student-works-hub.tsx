@@ -18,6 +18,7 @@ import {
   resolveDefaultWorksSelection,
 } from '@/lib/teacher-works-catalog';
 import { cn } from '@/lib/cn';
+import { useLanguage } from '@/contexts/language-context';
 
 interface StudentOption {
   id: string;
@@ -48,6 +49,7 @@ export function StudentWorksHub({
   onPushSummary?: (record: SummaryStudentRecord) => void;
   pushingStudentId?: string | null;
 }) {
+  const { tx } = useLanguage();
   const groups = useMemo(() => buildWorksLessonGroups(), []);
   const lesson5 = COURSE_LESSONS.find((l) => l.slug === 'lesson5');
 
@@ -70,7 +72,7 @@ export function StudentWorksHub({
 
   const gameOptions = useMemo(() => {
     if (lessonSlug === 'lesson5') {
-      return [{ key: 'detective-summary', emoji: '🕵️', label: '大侦探总结分享' }];
+      return [{ key: 'detective-summary', emoji: '🕵️', label: tx('大侦探总结分享') }];
     }
     if (!currentGroup) return [];
     const opts: Array<{ key: string; emoji: string; label: string }> = currentGroup.games.map((g) => ({
@@ -82,7 +84,7 @@ export function StudentWorksHub({
       opts.push({ key: '__video_bundle__', emoji: '🎬', label: currentGroup.videoBundle.label });
     }
     if (lessonHasSummary(currentGroup.lesson.slug)) {
-      opts.push({ key: 'detective-summary', emoji: '🕵️', label: '大侦探总结分享' });
+      opts.push({ key: 'detective-summary', emoji: '🕵️', label: tx('大侦探总结分享') });
     }
     return opts;
   }, [currentGroup, lessonSlug]);
@@ -95,12 +97,12 @@ export function StudentWorksHub({
   const vrTotal = Object.values(videoRecognition?.records || {}).length;
 
   const panelTitle = isSummary
-    ? '大侦探总结分享'
+    ? tx('大侦探总结分享')
     : isVideoRecognition
-      ? 'AI 视频识别'
+      ? tx('AI 视频识别')
       : currentGroup
         ? gameKeyLabel(currentGroup, gameKey)
-        : '学生作品';
+        : tx('学生作品');
   const followingCurrent =
     (currentGame === 'detective-summary' && isSummary) ||
     (currentGame === 'video-detective' && isVideoRecognition) ||
@@ -113,9 +115,9 @@ export function StudentWorksHub({
       <div className="kid-card space-y-4">
         <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
-            <div className="text-sm font-bold">📚 学生作品看板</div>
+            <div className="text-sm font-bold">{tx("📚 学生作品看板")}</div>
             <div className="text-xs text-ink-soft mt-0.5">
-              按课程与游戏分类查看，避免所有作品堆在一起。默认跟随你正在推送的课堂活动。
+              {tx('按课程与游戏分类查看，避免所有作品堆在一起。默认跟随你正在推送的课堂活动。')}
             </div>
           </div>
           <button
@@ -123,7 +125,7 @@ export function StudentWorksHub({
             onClick={() => setModalOpen(true)}
             className="kid-button-sm bg-white border-2 border-sky-200 text-sky-700 shrink-0"
           >
-            🔍 全屏查看
+            {tx('🔍 全屏查看')}
           </button>
         </div>
 
@@ -145,7 +147,7 @@ export function StudentWorksHub({
                   on ? 'border-brand bg-orange-50 ring-2 ring-brand/20' : 'border-orange-100 bg-white hover:border-orange-200',
                 )}
               >
-                <div className="text-[10px] font-bold text-ink-soft">第 {g.lesson.index} 课</div>
+                <div className="text-[10px] font-bold text-ink-soft">{tx("第")} {g.lesson.index} {tx("课")}</div>
                 <div className="text-sm font-extrabold flex items-center gap-1">
                   <span>{g.lesson.emoji}</span>
                   <span className="truncate">{g.lesson.title}</span>
@@ -167,7 +169,7 @@ export function StudentWorksHub({
                   : 'border-orange-100 bg-white hover:border-orange-200',
               )}
             >
-              <div className="text-[10px] font-bold text-ink-soft">第 {lesson5.index} 课</div>
+              <div className="text-[10px] font-bold text-ink-soft">{tx("第")} {lesson5.index} {tx("课")}</div>
               <div className="text-sm font-extrabold flex items-center gap-1">
                 <span>{lesson5.emoji}</span>
                 <span className="truncate">{lesson5.title}</span>
@@ -215,7 +217,7 @@ export function StudentWorksHub({
           followingCurrent ? 'border-emerald-200 bg-emerald-50/80' : 'border-orange-100 bg-orange-50/50',
         )}>
           <div className="text-sm font-bold">
-            {followingCurrent && <span className="text-emerald-700 mr-1">● 课堂进行中 ·</span>}
+            {followingCurrent && <span className="text-emerald-700 mr-1">{tx("● 课堂进行中 ·")}</span>}
             <span className="inline-flex items-center gap-1.5">
               {currentGroup ? (
                 <span className={cn(
@@ -238,8 +240,8 @@ export function StudentWorksHub({
           <div className="flex flex-wrap gap-2 text-[11px] font-bold">
             {isSummary ? (
               <>
-                <span className="tag">已提交 {summaryDone}</span>
-                <span className="tag bg-amber-50 text-amber-700 border-amber-200">作答中 {Math.max(0, summaryTotal - summaryDone)}</span>
+                <span className="tag">{tx("已提交")} {summaryDone}</span>
+                <span className="tag bg-amber-50 text-amber-700 border-amber-200">{tx("作答中")} {Math.max(0, summaryTotal - summaryDone)}</span>
               </>
             ) : isVideoRecognition ? (
               <>
@@ -248,10 +250,10 @@ export function StudentWorksHub({
               </>
             ) : (
               <>
-                <span className="tag">参与 {rosterIds.length || students.length} 人</span>
-                <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">完成 {stats.done}</span>
-                <span className="tag bg-amber-50 text-amber-700 border-amber-200">生成中 {stats.generating}</span>
-                {stats.failed > 0 && <span className="tag bg-rose-50 text-rose-700 border-rose-200">失败 {stats.failed}</span>}
+                <span className="tag">{tx("参与")} {rosterIds.length || students.length} {tx("人")}</span>
+                <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">{tx("完成")} {stats.done}</span>
+                <span className="tag bg-amber-50 text-amber-700 border-amber-200">{tx("生成中")} {stats.generating}</span>
+                {stats.failed > 0 && <span className="tag bg-rose-50 text-rose-700 border-rose-200">{tx("失败")} {stats.failed}</span>}
               </>
             )}
           </div>
@@ -288,7 +290,7 @@ export function StudentWorksHub({
               maxGridHeight="max-h-[50vh]"
             />
           ) : (
-            <p className="text-sm text-ink-soft text-center py-8">请选择上方的课程与游戏查看作品。</p>
+            <p className="text-sm text-ink-soft text-center py-8">{tx('请选择上方的课程与游戏查看作品。')}</p>
           )}
         </div>
       </div>
@@ -299,9 +301,9 @@ export function StudentWorksHub({
         title={panelTitle}
         subtitle={
           currentGroup
-            ? `第 ${currentGroup.lesson.index} 课 · ${currentGroup.lesson.title}`
+            ? `${tx('第')} ${currentGroup.lesson.index} ${tx('课 ·')} ${currentGroup.lesson.title}`
             : lesson5
-              ? `第 ${lesson5.index} 课 · ${lesson5.title}`
+              ? `${tx('第')} ${lesson5.index} ${tx('课 ·')} ${lesson5.title}`
               : undefined
         }
         mode={isSummary ? 'summary' : isVideoRecognition ? 'video-recognition' : 'creation'}

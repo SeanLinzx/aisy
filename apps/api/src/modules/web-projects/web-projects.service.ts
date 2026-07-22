@@ -61,38 +61,85 @@ export class WebProjectsService {
             css: data.css ?? '',
             js: data.js ?? '',
             prompt: data.prompt,
+            notes: '初始版本',
           },
         },
       },
       include: { versions: true },
     });
-    return project;
+    const first = project.versions[0];
+    if (first) {
+      await this.prisma.webProject.update({
+        where: { id: project.id },
+        data: { headVersionId: first.id },
+      });
+    }
+    return { ...project, headVersionId: first?.id ?? null };
   }
 
-  async addVersion(id: string, viewerId: string, viewerRole: Role, data: { html?: string; css?: string; js?: string; prompt?: string; notes?: string }) {
-    const p = await this.prisma.webProject.findUnique({ where: { id }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
+  async addVersion(
+    id: string,
+    viewerId: string,
+    viewerRole: Role,
+    data: { html?: string; css?: string; js?: string; prompt?: string; notes?: string; parentVersionId?: string },
+  ) {
+    const p = await this.prisma.webProject.findUnique({
+      where: { id },
+      include: { versions: { orderBy: { version: 'desc' }, take: 1 } },
+    });
     if (!p) throw new NotFoundException('项目不存在');
     if (p.ownerId !== viewerId && !['admin'].includes(viewerRole)) throw new ForbiddenException('无权编辑');
 
     const last = p.versions[0];
-    const newVersion = (last?.version ?? 0) + 1;
+    const newVersionNum = (last?.version ?? 0) + 1;
+    const parentId = data.parentVersionId ?? p.headVersionId ?? last?.id ?? null;
+    if (parentId) {
+      const parent = await this.prisma.webProjectVersion.findFirst({ where: { id: parentId, projectId: id } });
+      if (!parent) throw new NotFoundException('父版本不存在');
+    }
+
     const html = sanitizeGeneratedHtml(data.html ?? last?.html ?? '');
     const version = await this.prisma.webProjectVersion.create({
       data: {
         projectId: id,
-        version: newVersion,
+        version: newVersionNum,
         html,
         css: data.css ?? last?.css ?? '',
         js: data.js ?? last?.js ?? '',
         prompt: data.prompt,
         notes: data.notes,
+        parentVersionId: parentId,
       },
     });
     await this.prisma.webProject.update({
       where: { id },
-      data: { currentVersion: newVersion, updatedAt: new Date() },
+      data: { currentVersion: newVersionNum, headVersionId: version.id, updatedAt: new Date() },
     });
     return version;
+  }
+
+  async patchVersion(
+    id: string,
+    versionId: string,
+    viewerId: string,
+    viewerRole: Role,
+    data: { notes?: string; prompt?: string },
+  ) {
+    const p = await this.prisma.webProject.findUnique({ where: { id } });
+    if (!p) throw new NotFoundException('项目不存在');
+    if (p.ownerId !== viewerId && !['admin'].includes(viewerRole)) throw new ForbiddenException('无权编辑');
+
+    const version = await this.prisma.webProjectVersion.findFirst({ where: { id: versionId, projectId: id } });
+    if (!version) throw new NotFoundException('版本不存在');
+
+    const patch: { notes?: string; prompt?: string } = {};
+    if (data.notes !== undefined) patch.notes = data.notes;
+    if (data.prompt !== undefined) patch.prompt = data.prompt;
+
+    return this.prisma.webProjectVersion.update({
+      where: { id: versionId },
+      data: patch,
+    });
   }
 
   async update(id: string, viewerId: string, viewerRole: Role, data: any) {

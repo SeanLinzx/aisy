@@ -61,6 +61,53 @@ export class ClassesService {
     });
   }
 
+  async batchMembers(classId: string, action: 'add' | 'remove', userIds: string[]) {
+    const uniqueIds = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return { ok: true, success: 0, failed: 0, summary: '未选择任何学生' };
+    }
+
+    let success = 0;
+    const failed: Array<{ userId: string; reason: string }> = [];
+
+    if (action === 'add') {
+      for (const userId of uniqueIds) {
+        try {
+          await this.addMember(classId, userId);
+          success += 1;
+        } catch (e: unknown) {
+          failed.push({ userId, reason: e instanceof Error ? e.message : '加入失败' });
+        }
+      }
+    } else {
+      for (const userId of uniqueIds) {
+        try {
+          const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+          if (!user) {
+            failed.push({ userId, reason: '用户不存在' });
+            continue;
+          }
+          if (user.role === 'teacher') {
+            failed.push({ userId, reason: '不能移除老师' });
+            continue;
+          }
+          await this.removeMember(classId, userId);
+          success += 1;
+        } catch (e: unknown) {
+          failed.push({ userId, reason: e instanceof Error ? e.message : '移除失败' });
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      success,
+      failed: failed.length,
+      errors: failed,
+      summary: action === 'add' ? `成功加入 ${success} 人` : `成功移除 ${success} 人`,
+    };
+  }
+
   myClasses(userId: string) {
     return this.prisma.class.findMany({
       where: {

@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AiProviderAdapter } from './ai.types';
 import { MockProvider } from './providers/mock.provider';
-import { VolcengineArkProvider } from './providers/volcengine-ark.provider';
+import { VolcengineArkProvider, DEFAULT_ARK_VIDEO_MODEL } from './providers/volcengine-ark.provider';
 
 /**
  * Holds the live provider instances. The DB acts as the source of truth for
@@ -37,8 +37,10 @@ export class ProviderRegistry implements OnModuleInit {
         imagesPath: process.env.ARK_IMAGES_PATH || '/images/generations',
         textModel: process.env.ARK_TEXT_MODEL || undefined,
         imageModel: process.env.ARK_IMAGE_MODEL || undefined,
-        videoModel: process.env.ARK_VIDEO_MODEL || undefined,
+        videoModel: process.env.ARK_VIDEO_MODEL || DEFAULT_ARK_VIDEO_MODEL,
         multimodalModel: process.env.ARK_MULTIMODAL_MODEL || undefined,
+        webModel: process.env.ARK_WEB_MODEL || undefined,
+        chatCompletionsPath: process.env.ARK_CHAT_COMPLETIONS_PATH || '/chat/completions',
       }));
     }
 

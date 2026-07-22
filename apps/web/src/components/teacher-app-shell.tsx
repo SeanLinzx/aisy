@@ -1,7 +1,6 @@
 'use client';
 
 import { RoleShell, type NavItem } from '@/components/role-shell';
-import { TeacherScoreFab } from '@/components/course/teacher-score-fab';
 
 export function TeacherAppShell({
   user,
@@ -21,7 +20,6 @@ export function TeacherAppShell({
       <RoleShell user={user} navItems={navItems} title={title} variant={variant}>
         {children}
       </RoleShell>
-      <TeacherScoreFab />
     </>
   );
 }

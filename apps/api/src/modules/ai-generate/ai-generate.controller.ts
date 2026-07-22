@@ -1,10 +1,16 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 import { JobType, JobTypes } from '../../common/enums';
 import { AiGenerateService } from './ai-generate.service';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
+
+class ChatMessageDto {
+  @IsIn(['user', 'assistant']) role!: 'user' | 'assistant';
+  @IsString() content!: string;
+}
 
 class TextDto {
   @IsString() prompt!: string;
@@ -12,10 +18,13 @@ class TextDto {
   @IsOptional() @IsString() providerName?: string;
   @IsOptional() @IsBoolean() saveAsAsset?: boolean;
   @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsString() system?: string;
+  @IsOptional() @IsArray() messages?: ChatMessageDto[];
 }
 
 class WebDto extends TextDto {
   @IsOptional() @IsBoolean() interactive?: boolean;
+  @IsOptional() @IsBoolean() aiCamp?: boolean;
 }
 
 class ImageDto extends TextDto {
@@ -52,6 +61,14 @@ class MusicDto {
   @IsOptional() @IsString() timbre?: string;
   @IsOptional() @IsNumber() duration?: number;
   @IsOptional() @IsString() title?: string;
+}
+
+class MusicLyricsDto {
+  @IsString() theme!: string;
+  @IsOptional() @IsString() genre?: string;
+  @IsOptional() @IsString() mood?: string;
+  @IsOptional() @IsString() model?: string;
+  @IsOptional() @IsString() providerName?: string;
 }
 
 class OptimizePromptDto {
@@ -130,6 +147,11 @@ export class AiGenerateController {
     return this.svc.concatVideos(me.id, dto);
   }
 
+  @Post('music/lyrics')
+  musicLyrics(@Body() dto: MusicLyricsDto, @CurrentUser() me: AuthUser) {
+    return this.svc.generateMusicLyrics(me.id, dto);
+  }
+
   @Post('music')
   music(@Body() dto: MusicDto, @CurrentUser() me: AuthUser) {
     return this.svc.submitMusic(me.id, dto);
@@ -145,13 +167,20 @@ export class AiGenerateController {
     return this.svc.saveCreationSession(me.id, dto);
   }
 
+  @SkipThrottle()
   @Get('jobs')
   jobs(@CurrentUser() me: AuthUser, @Query() q: ListJobsQueryDto) {
     return this.svc.listJobs(me.id, q.type);
   }
 
+  @SkipThrottle()
   @Get('jobs/:id')
   job(@Param('id') id: string) {
     return this.svc.getJob(id);
+  }
+
+  @Post('jobs/:id/cancel')
+  cancelJob(@Param('id') id: string, @CurrentUser() me: AuthUser) {
+    return this.svc.cancelVideoJob(me.id, me.role, id);
   }
 }

@@ -24,7 +24,11 @@ export function buildWorksLessonGroups(): WorksLessonGroup[] {
   const map = new Map<string, WorksLessonGroup>();
 
   for (const slug of TRACKED_CREATION_GAMES) {
-    if ((VIDEO_CREATION_GAMES as readonly string[]).includes(slug) && slug !== 'frame-video') continue;
+    if (
+      (VIDEO_CREATION_GAMES as readonly string[]).includes(slug)
+      && slug !== 'frame-video'
+      && slug !== 'ai-director'
+    ) continue;
     const found = findGame(slug);
     if (!found) continue;
     const key = found.lesson.slug;
@@ -41,9 +45,13 @@ export function buildWorksLessonGroups(): WorksLessonGroup[] {
       if (quiz && !g.games.some((x) => x.slug === quiz.slug)) {
         g.games.unshift(quiz);
       }
+      const director = lesson3.games.find((x) => x.slug === 'ai-director');
+      if (director && !g.games.some((x) => x.slug === director.slug)) {
+        g.games.push(director);
+      }
       g.videoBundle = {
         slugs: ['frame-video', 'video-studio', 'video-free'],
-        label: '自由生视频 & 关键帧生视频',
+        label: '自由生视频（含首尾帧）',
       };
     }
   }
@@ -85,7 +93,10 @@ export function resolveDefaultWorksSelection(
     if (found) {
       const group = groups.find((g) => g.lesson.slug === found.lesson.slug);
       if (group) {
-        if ((VIDEO_CREATION_GAMES as readonly string[]).includes(currentGame)) {
+        if (
+          (VIDEO_CREATION_GAMES as readonly string[]).includes(currentGame)
+          && currentGame !== 'ai-director'
+        ) {
           return { lessonSlug: group.lesson.slug, gameKey: '__video_bundle__' };
         }
         return { lessonSlug: group.lesson.slug, gameKey: currentGame };

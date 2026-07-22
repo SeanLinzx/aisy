@@ -43,8 +43,13 @@ services:
       ARK_IMAGES_PATH: ${ARK_IMAGES_PATH:-/images/generations}
       ARK_TEXT_MODEL: ${ARK_TEXT_MODEL:-}
       ARK_IMAGE_MODEL: ${ARK_IMAGE_MODEL:-doubao-seedream-3-0-t2i-250415}
-      ARK_VIDEO_MODEL: ${ARK_VIDEO_MODEL:-doubao-seedance-2-0-260128}
-      ARK_MULTIMODAL_MODEL: ${ARK_MULTIMODAL_MODEL:-doubao-seed-2-0-pro-260215}
+      ARK_VIDEO_MODEL: ${ARK_VIDEO_MODEL:-doubao-seedance-2-0-mini-260615}
+      ARK_MULTIMODAL_MODEL: ${ARK_MULTIMODAL_MODEL:-doubao-seed-2-1-pro-260628}
+      ARK_WEB_MODEL: ${ARK_WEB_MODEL:-doubao-seed-2-1-pro-260628}
+      ARK_CHAT_COMPLETIONS_PATH: ${ARK_CHAT_COMPLETIONS_PATH:-/chat/completions}
+      # 并发闸门 / 排队提醒：超过下面数值的并发生图/生视频请求会本地排队，而不是直接向供应商报错
+      AI_IMAGE_MAX_CONCURRENCY: ${AI_IMAGE_MAX_CONCURRENCY:-50}
+      AI_VIDEO_MAX_CONCURRENCY: ${AI_VIDEO_MAX_CONCURRENCY:-10}
     ports:
       - "3001:3001"
     volumes:

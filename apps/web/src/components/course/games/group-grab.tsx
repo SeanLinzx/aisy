@@ -1,4 +1,7 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
+import { useCourseStreamChannel } from '@/contexts/course-stream-context';
 import { useCallback, useEffect, useState } from 'react';
 import { api, apiAuth } from '@/lib/api';
 
@@ -28,29 +31,37 @@ export interface GroupGrabSession {
 }
 
 export function GroupGrabGame() {
+  const { tx } = useLanguage();
+  const { data: streamSession, loaded: streamLoaded } = useCourseStreamChannel<GroupGrabSession>(
+    'groupGrab',
+    '/course/group-grab',
+  );
   const [session, setSession] = useState<GroupGrabSession | null>(null);
   const [meId, setMeId] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
+  useEffect(() => {
+    apiAuth.me().then((me) => setMeId(me?.id ?? null)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (streamSession) setSession(streamSession);
+  }, [streamSession]);
+
   const load = useCallback(async () => {
     try {
-      const [s, me] = await Promise.all([
-        api.get('/course/group-grab'),
-        apiAuth.me().catch(() => null),
-      ]);
+      const s = await api.get('/course/group-grab');
       setSession(s.data || null);
-      setMeId(me?.id ?? null);
     } catch {
       setSession(null);
     }
   }, []);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, 2500);
-    return () => clearInterval(t);
-  }, [load]);
+    if (streamSession || !streamLoaded) return;
+    void load();
+  }, [streamSession, streamLoaded, load]);
 
   async function grab(groupId: string) {
     if (busy) return;
@@ -64,11 +75,11 @@ export function GroupGrabGame() {
       setSession(joined);
       setFlash({
         type: 'ok',
-        msg: mates.length > 0 ? `🎉 抢组成功！同组还有：${mates.join('、')}` : '🎉 抢组成功！你是这个组的第一人～',
+        msg: mates.length > 0 ? `${tx('🎉 抢组成功！同组还有：')}${mates.join('、')}` : tx('🎉 抢组成功！你是这个组的第一人～'),
       });
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || '抢组失败';
-      setFlash({ type: 'err', msg: typeof msg === 'string' ? msg : '该组已满，请选其他小组' });
+      setFlash({ type: 'err', msg: typeof msg === 'string' ? msg : tx('该组已满，请选其他小组') });
       await load();
     } finally {
       setBusy(null);
@@ -79,8 +90,8 @@ export function GroupGrabGame() {
     return (
       <div className="kid-card text-center py-10">
         <div className="text-4xl mb-3">👯</div>
-        <div className="font-extrabold text-lg">老师还没开始抢组</div>
-        <p className="text-sm text-ink-soft mt-2">请等老师在课堂控制台设置小组并开启抢组活动。</p>
+        <div className="font-extrabold text-lg">{tx('老师还没开始抢组')}</div>
+        <p className="text-sm text-ink-soft mt-2">{tx('请等老师在课堂控制台设置小组并开启抢组活动。')}</p>
       </div>
     );
   }
@@ -89,8 +100,8 @@ export function GroupGrabGame() {
     return (
       <div className="kid-card-orange text-center py-10">
         <div className="text-4xl mb-3 animate-wiggle">⏳</div>
-        <div className="font-extrabold text-lg">小组名单准备好了</div>
-        <p className="text-sm text-ink-soft mt-2">老师马上就会喊「开始抢组」，请准备好选你想去的小组！</p>
+        <div className="font-extrabold text-lg">{tx('小组名单准备好了')}</div>
+        <p className="text-sm text-ink-soft mt-2">{tx('老师马上就会喊「开始抢组」，请准备好选你想去的小组！')}</p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           {session.groups.map((g) => (
             <span key={g.id} className="tag">{g.emoji} {g.name}</span>
@@ -116,8 +127,8 @@ export function GroupGrabGame() {
           <div className="font-display text-2xl font-extrabold">{myGroup.name}</div>
           <p className="text-sm text-ink-soft mt-2">
             {myMember?.autoAssigned
-              ? '🔄 你被调剂到了这个小组，和小伙伴们一起加油！'
-              : '🎉 你已经成功加入这个小组啦！'}
+              ? tx('🔄 你被调剂到了这个小组，和小伙伴们一起加油！')
+              : tx('🎉 你已经成功加入这个小组啦！')}
           </p>
           <div className="mt-4 mx-auto max-w-sm rounded-2xl bg-white/70 border-2 border-emerald-200 px-4 py-3">
             <div className="text-xs font-bold text-emerald-700 mb-1.5">
@@ -132,31 +143,31 @@ export function GroupGrabGame() {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-ink-soft">暂时只有你一个人，等等其他小伙伴来吧～</p>
+              <p className="text-xs text-ink-soft">{tx('暂时只有你一个人，等等其他小伙伴来吧～')}</p>
             )}
             <p className="text-xs font-bold mt-2 text-emerald-600">
-              {myGroupFull ? '🎊 小组满员啦，一起加油！' : `再来 ${myGroup.capacity - myGroup.members.length} 人就满员啦～`}
+              {myGroupFull ? tx('🎊 小组满员啦，一起加油！') : `${tx('再来 ')}${myGroup.capacity - myGroup.members.length}${tx(' 人就满员啦～')}`}
             </p>
           </div>
         </div>
       ) : closed ? (
         <div className="kid-card text-center py-6">
           <div className="text-4xl mb-2">😅</div>
-          <div className="font-extrabold text-lg">抢组已结束</div>
-          <p className="text-sm text-ink-soft mt-2">你还没有被分到小组，请告诉老师帮你安排。</p>
+          <div className="font-extrabold text-lg">{tx('抢组已结束')}</div>
+          <p className="text-sm text-ink-soft mt-2">{tx('你还没有被分到小组，请告诉老师帮你安排。')}</p>
         </div>
       ) : (
         <div className="kid-card-orange">
           <div className="font-extrabold text-lg flex items-center gap-2">
-            <span className="text-2xl animate-wiggle">🏃</span> 快选你想去的小组！
+            <span className="text-2xl animate-wiggle">{tx('🏃')}</span> 快选你想去的小组！
           </div>
-          <p className="text-sm text-ink-soft mt-1">点击下面的小组卡片抢位，满员后就选不了了哦～</p>
+          <p className="text-sm text-ink-soft mt-1">{tx('点击下面的小组卡片抢位，满员后就选不了了哦～')}</p>
         </div>
       )}
 
       {flash && (
         <div className={`rounded-2xl border-2 px-4 py-3 text-sm font-bold text-center ${flash.type === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-600'}`}>
-          {flash.msg}
+          {tx(flash.msg)}
         </div>
       )}
 
@@ -189,13 +200,13 @@ export function GroupGrabGame() {
                 </span>
               </div>
               <div className="font-display text-xl font-extrabold mt-2">{g.name}</div>
-              {full && !mine && <div className="text-xs font-bold text-amber-600 mt-2">😢 已满员</div>}
+              {full && !mine && <div className="text-xs font-bold text-amber-600 mt-2">{tx('😢 已满员')}</div>}
               {canGrab && (
                 <div className="mt-3 text-sm font-bold text-brand">
                   {busy === g.id ? '抢组中…' : '点我抢这个组 →'}
                 </div>
               )}
-              {mine && <div className="mt-3 text-sm font-bold text-emerald-600">✅ 你在这里</div>}
+              {mine && <div className="mt-3 text-sm font-bold text-emerald-600">{tx('✅ 你在这里')}</div>}
               {g.members.length > 0 && (
                 <div className="mt-3 text-xs text-ink-soft leading-relaxed">
                   已有：{g.members.map((m) => m.displayName).join('、')}
@@ -252,6 +263,7 @@ export function GroupGrabTeacherPanel({
   onManualAssign: (studentId: string, groupId: string) => void;
   onPushAgain?: () => void;
 }) {
+  const { tx } = useLanguage();
   const assignedIds = new Set(
     session?.groups.flatMap((g) => g.members.map((m) => m.studentId)) ?? [],
   );
@@ -314,7 +326,7 @@ export function GroupGrabTeacherPanel({
               onChange={(e) => updateDraft(i, { capacity: Math.max(1, Number(e.target.value) || 1) })}
               title="人数上限"
             />
-            <span className="text-[11px] text-ink-soft text-center shrink-0">人</span>
+            <span className="text-[11px] text-ink-soft text-center shrink-0">{tx('人')}</span>
             {draftGroups.length > 2 ? (
               <button
                 type="button"

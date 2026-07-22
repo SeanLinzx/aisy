@@ -1,4 +1,6 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
@@ -6,9 +8,16 @@ import { resolveUploadPath } from '@/lib/upload-url';
 import { AiWarning } from '@/components/ai-warning';
 import { ImageUpload } from '@/components/course/image-upload';
 import { AiProgress } from '@/components/course/ai-progress';
+import { MultiLineField } from '@/components/course/multi-line-field';
 import { VideoGenTimeHint } from '@/components/video-gen-time-hint';
 import { humanizeArkVideoError, sanitizeCopyrightTerms } from '@/lib/prompt-sanitize';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
+import type { DirectorEmbedProps } from '@/lib/director-pipeline';
+import {
+  consumePictureBookImportPending,
+  loadDirectorStoryboard,
+  storyboardToFrameVideoInput,
+} from '@/lib/director-pipeline';
 
 interface Segment {
   jobId: string;
@@ -17,6 +26,8 @@ interface Segment {
   videoUrl?: string;
   error?: string;
   assetId?: string;
+  queuePosition?: number;
+  segmentIndex: number;
 }
 
 function extractVideoUrl(output: unknown): string | undefined {
@@ -42,7 +53,13 @@ function extractVideoUrl(output: unknown): string | undefined {
 
 function mapJobToSegment(
   seg: Segment,
-  job: { status?: string; output?: unknown; error?: string | null; assets?: Array<{ id: string }> },
+  job: {
+    status?: string;
+    output?: unknown;
+    error?: string | null;
+    assets?: Array<{ id: string }>;
+    queuePosition?: number;
+  },
 ): Segment {
   const videoUrl = extractVideoUrl(job.output);
   const status = (job.status as Segment['status']) || seg.status;
@@ -53,7 +70,18 @@ function mapJobToSegment(
     videoUrl: videoUrl || seg.videoUrl,
     error: humanizeArkVideoError(job.error) || seg.error,
     assetId,
+    queuePosition: typeof job.queuePosition === 'number' ? job.queuePosition : undefined,
   };
+}
+
+/** 所选索引须为升序且连续（如 0,1,2） */
+function isConsecutiveIndices(indices: number[]): boolean {
+  if (indices.length < 2) return false;
+  const sorted = [...indices].sort((a, b) => a - b);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] !== sorted[i - 1] + 1) return false;
+  }
+  return true;
 }
 
 async function downloadVideo(url: string, filename: string) {
@@ -75,8 +103,9 @@ async function downloadVideo(url: string, filename: string) {
   }
 }
 
-export function FrameVideoGame() {
-  const report = useReportGameProgress('frame-video');
+export function FrameVideoGame({ embedded, stepTitle, progressSlug }: DirectorEmbedProps & { progressSlug?: string } = {}) {
+  const { tx } = useLanguage();
+  const report = useReportGameProgress(progressSlug ?? 'frame-video');
   const [frames, setFrames] = useState<(string | null)[]>([null, null]);
   const [descs, setDescs] = useState<string[]>(['']);
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -85,9 +114,44 @@ export function FrameVideoGame() {
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [mergedVideo, setMergedVideo] = useState<{ url: string; assetId?: string } | null>(null);
+  const [mergeSelected, setMergeSelected] = useState<Set<number>>(() => new Set());
+  const [submitProgress, setSubmitProgress] = useState<{ current: number; total: number } | null>(null);
+  const [importHint, setImportHint] = useState<string | null>(null);
   const autoSavingRef = useRef(new Set<string>());
+  const importedStoryboardRef = useRef(false);
   const segmentsRef = useRef<Segment[]>([]);
   segmentsRef.current = segments;
+
+  useEffect(() => {
+    if (importedStoryboardRef.current) return;
+
+    const pending = consumePictureBookImportPending();
+    if (!embedded && !pending) return;
+
+    const sb = loadDirectorStoryboard();
+    if (!sb) {
+      if (pending) setError('没有找到绘本分镜数据，请返回绘本页重新导入。');
+      return;
+    }
+
+    const input = storyboardToFrameVideoInput(sb);
+    if (!input) {
+      setError('绘本至少需要 2 页已生成的插图才能导入到首尾帧生视频。');
+      return;
+    }
+
+    importedStoryboardRef.current = true;
+    setFrames(input.frames);
+    setDescs(input.descs);
+    setSegments([]);
+    setMergedVideo(null);
+    setMergeError(null);
+    setMergeSelected(new Set());
+    setError(null);
+    setImportHint(
+      `✅ 已从绘本「${sb.title}」导入 ${input.pageCount} 帧分镜图，并自动填写 ${input.descs.length} 段过渡描述，确认后可生成视频。`,
+    );
+  }, [embedded]);
 
   const pollOnce = useCallback(async () => {
     const current = segmentsRef.current;
@@ -96,20 +160,12 @@ export function FrameVideoGame() {
       const updated = await Promise.all(
         current.map(async (seg) => {
           if (seg.status === 'succeeded' && seg.videoUrl) return seg;
-          if (seg.status === 'failed') return seg;
+          if (seg.status === 'failed' || seg.jobId.startsWith('failed-submit-')) return seg;
           try {
             const r = await api.get(`/ai-generate/jobs/${seg.jobId}`);
             return mapJobToSegment(seg, r.data || {});
           } catch {
-            try {
-              const list = await api.get('/ai-generate/jobs', { params: { type: 'video' } });
-              const jobs: Array<{ id: string; status?: string; output?: unknown; error?: string }> =
-                list.data || [];
-              const j = jobs.find((x) => x.id === seg.jobId);
-              return j ? mapJobToSegment(seg, j) : seg;
-            } catch {
-              return seg;
-            }
+            return seg;
           }
         }),
       );
@@ -154,7 +210,10 @@ export function FrameVideoGame() {
     if (!pending && !missingUrl) return;
 
     void pollOnce();
-    const timer = setInterval(() => void pollOnce(), 3000);
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      void pollOnce();
+    }, 4000);
     return () => clearInterval(timer);
   }, [segments, pollOnce]);
 
@@ -206,6 +265,33 @@ export function FrameVideoGame() {
   }
 
 
+  async function submitVideoTask(task: {
+    index: number;
+    safePrompt: string;
+    prompt: string;
+    references: Array<{ type: 'image'; url: string; role: string }>;
+  }): Promise<Segment> {
+    const r = await api.post(
+      '/ai-generate/video',
+      {
+        prompt: task.safePrompt,
+        title: `分镜视频·第${task.index + 1}段·${task.prompt.slice(0, 16)}`,
+        references: task.references,
+        duration: 5,
+        ratio: '16:9',
+        generateAudio: true,
+      },
+      { timeout: 90_000 },
+    );
+    return {
+      jobId: r.data.jobId as string,
+      prompt: task.prompt,
+      status: 'queued',
+      segmentIndex: task.index,
+      queuePosition: typeof r.data.queuePosition === 'number' ? r.data.queuePosition : undefined,
+    };
+  }
+
   async function generate() {
     if (!frames.every((f) => !!f)) {
       setError('请先给每个分镜都上传图片。');
@@ -220,35 +306,121 @@ export function FrameVideoGame() {
     setSegments([]);
     setMergedVideo(null);
     setMergeError(null);
+    setMergeSelected(new Set());
     void report({ status: 'generating', summary: '正在提交视频任务…' });
+
+    const tasks = Array.from({ length: frames.length - 1 }, (_, i) => ({
+      index: i,
+      safePrompt: sanitizeCopyrightTerms(descs[i].trim()),
+      prompt: descs[i].trim(),
+      references: [
+        { type: 'image' as const, url: frames[i]!, role: 'first_frame' },
+        { type: 'image' as const, url: frames[i + 1]!, role: 'last_frame' },
+      ],
+    }));
+
+    setSubmitProgress({ current: 0, total: tasks.length });
+    const results: Segment[] = [];
     try {
-      const created: Segment[] = [];
-      for (let i = 0; i < frames.length - 1; i++) {
-        const safePrompt = sanitizeCopyrightTerms(descs[i].trim());
-        const r = await api.post('/ai-generate/video', {
-          prompt: safePrompt,
-          title: `分镜视频·第${i + 1}段·${descs[i].trim().slice(0, 16)}`,
-          references: [
-            { type: 'image', url: frames[i], role: 'first_frame' },
-            { type: 'image', url: frames[i + 1], role: 'last_frame' },
-          ],
-          duration: 5,
-          ratio: '16:9',
-          generateAudio: true,
-        });
-        created.push({ jobId: r.data.jobId, prompt: descs[i].trim(), status: 'queued' });
+      for (let i = 0; i < tasks.length; i++) {
+        setSubmitProgress({ current: i + 1, total: tasks.length });
+        try {
+          const seg = await submitVideoTask(tasks[i]);
+          results.push(seg);
+          setSegments([...results]);
+        } catch (e: unknown) {
+          results.push({
+            jobId: `failed-submit-${i}-${Date.now()}`,
+            prompt: tasks[i].prompt,
+            status: 'failed',
+            error: humanizeArkVideoError((e as Error)?.message) || (e as Error)?.message || '提交失败',
+            segmentIndex: tasks[i].index,
+          });
+          setSegments([...results]);
+        }
+        if (i < tasks.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
       }
-      setSegments(created);
       setTimeout(() => void pollOnce(), 500);
     } catch (e: unknown) {
-      setError((e as Error)?.message || '提交失败');
+      setError(humanizeArkVideoError((e as Error)?.message) || (e as Error)?.message || '提交失败');
     } finally {
       setBusy(false);
+      setSubmitProgress(null);
     }
   }
 
+  async function retrySegment(index: number) {
+    const seg = segments[index];
+    if (!seg || seg.status !== 'failed') return;
+    const i = seg.segmentIndex;
+    if (!frames[i] || !frames[i + 1] || !descs[i]?.trim()) {
+      setError('分镜数据不完整，无法重试这一段。');
+      return;
+    }
+    setError(null);
+    setSegments((prev) =>
+      prev.map((s, idx) =>
+        idx === index
+          ? { ...s, status: 'queued' as const, error: undefined, videoUrl: undefined, assetId: undefined }
+          : s,
+      ),
+    );
+    try {
+      const next = await submitVideoTask({
+        index: i,
+        safePrompt: sanitizeCopyrightTerms(descs[i].trim()),
+        prompt: descs[i].trim(),
+        references: [
+          { type: 'image' as const, url: frames[i]!, role: 'first_frame' },
+          { type: 'image' as const, url: frames[i + 1]!, role: 'last_frame' },
+        ],
+      });
+      setSegments((prev) => prev.map((s, idx) => (idx === index ? next : s)));
+      setTimeout(() => void pollOnce(), 500);
+    } catch (e: unknown) {
+      setSegments((prev) =>
+        prev.map((s, idx) =>
+          idx === index
+            ? {
+                ...s,
+                status: 'failed' as const,
+                error: humanizeArkVideoError((e as Error)?.message) || (e as Error)?.message || '重试失败',
+              }
+            : s,
+        ),
+      );
+    }
+  }
+
+  function toggleMergeSelect(index: number) {
+    setMergeSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+    setMergedVideo(null);
+    setMergeError(null);
+  }
+
+  function selectAllSucceededForMerge() {
+    const indices = segments
+      .map((s, i) => (s.status === 'succeeded' && s.videoUrl ? i : -1))
+      .filter((idx) => idx >= 0);
+    setMergeSelected(new Set(indices));
+    setMergedVideo(null);
+    setMergeError(null);
+  }
+
   async function mergeVideos() {
-    const urls = segments.filter((s) => s.status === 'succeeded' && s.videoUrl).map((s) => s.videoUrl!);
+    const indices = [...mergeSelected].sort((a, b) => a - b);
+    if (!isConsecutiveIndices(indices)) {
+      setMergeError('请选择连续的多段视频（例如第 1–3 段，不能跳段）。');
+      return;
+    }
+    const urls = indices.map((i) => segments[i]?.videoUrl).filter(Boolean) as string[];
     if (urls.length < 2) {
       setMergeError('至少需要 2 段已完成的视频才能拼接。');
       return;
@@ -256,12 +428,16 @@ export function FrameVideoGame() {
     setMergeBusy(true);
     setMergeError(null);
     try {
-      const r = await api.post('/ai-generate/video/concat', {
-        videoUrls: urls,
-        title: `分镜完整视频 · ${urls.length} 段`,
-        segmentJobIds: segments.map((s) => s.jobId),
-        courseGame: 'frame-video',
-      });
+      const r = await api.post(
+        '/ai-generate/video/concat',
+        {
+          videoUrls: urls,
+          title: `分镜完整视频 · 第${indices[0] + 1}-${indices[indices.length - 1] + 1}段 · 共${urls.length}段`,
+          segmentJobIds: indices.map((i) => segments[i]?.jobId).filter(Boolean),
+          courseGame: progressSlug ?? 'frame-video',
+        },
+        { timeout: 300_000 },
+      );
       setMergedVideo({ url: r.data.videoUrl, assetId: r.data.assetId });
     } catch (e: unknown) {
       setMergeError((e as Error)?.message || '拼接失败，请稍后重试');
@@ -275,12 +451,22 @@ export function FrameVideoGame() {
   const succeededSegments = segments.filter((s) => s.status === 'succeeded' && s.videoUrl);
   const allSaved = succeededSegments.length > 0 && succeededSegments.every((s) => s.assetId);
   const canMerge = succeededSegments.length >= 2 && !hasPending;
+  const mergeSelection = [...mergeSelected].sort((a, b) => a - b);
+  const canMergeSelection = isConsecutiveIndices(mergeSelection) && mergeSelection.length >= 2;
 
   return (
     <div className="space-y-4">
+      {embedded && stepTitle && (
+        <div className="text-sm font-extrabold text-sky-700">{stepTitle}</div>
+      )}
+      {importHint && (
+        <div className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 font-semibold">
+          {tx(importHint)}
+        </div>
+      )}
       <div className="kid-card-sky">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🪄 上传关键帧图片并排好顺序，描述相邻两帧之间发生了什么，AI 就会生成把它们连起来的视频！<b>每段视频平均约 3 分钟</b>，生成完成后会<b>自动保存到素材库</b>，也可以下载到本机。点最右边的「➕ 添加分镜」可以加更多镜头。
+          🪄 上传关键帧图片并排好顺序，描述相邻两帧之间发生了什么，AI 就会生成把它们连起来的视频！<b>{tx('每段视频平均约 3 分钟')}</b>{tx('，生成完成后会')}<b>{tx('自动保存到素材库')}</b>，也可以下载到本机。点最右边的「➕ 添加分镜」可以加更多镜头。
         </p>
         <div className="mt-2">
           <VideoGenTimeHint />
@@ -303,13 +489,13 @@ export function FrameVideoGame() {
                     </button>
                   )}
                 </div>
-                <ImageUpload value={url} onChange={(u) => setFrame(i, u)} label="上传图片" />
+                <ImageUpload value={url} onChange={(u) => setFrame(i, u)} label={tx('上传图片')} />
               </div>
               {i < frames.length - 1 && <div className="flex items-center text-2xl text-ink-soft shrink-0">→</div>}
             </div>
           ))}
           <div className="w-44 shrink-0">
-            <div className="text-xs font-bold mb-1 opacity-0">添加</div>
+            <div className="text-xs font-bold mb-1 opacity-0">{tx('添加')}</div>
             <button
               onClick={addFrame}
               className="w-full aspect-square rounded-2xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 hover:bg-emerald-100 hover:border-emerald-400 transition flex flex-col items-center justify-center text-emerald-700"
@@ -322,53 +508,74 @@ export function FrameVideoGame() {
       </div>
 
       <div className="kid-card space-y-3">
-        <div className="text-sm font-bold">✏️ 每两帧之间发生了什么？</div>
+        <div className="text-sm font-bold">{tx('✏️ 每两帧之间发生了什么？')}</div>
         {descs.map((d, i) => (
-          <div key={i}>
-            <label className="text-xs font-bold text-ink-soft">
-              第 {i + 1} 段：{frameLabel(i)} → {frameLabel(i + 1)}
-            </label>
-            <input
-              className="kid-input !py-2"
-              value={d}
-              onChange={(e) => setDesc(i, e.target.value)}
-              placeholder="例如：小恐龙慢慢变成公主（不要写具体角色名）"
-            />
-          </div>
+          <MultiLineField
+            key={i}
+            label={`第 ${i + 1} 段：${frameLabel(i)} → ${frameLabel(i + 1)}`}
+            value={d}
+            onChange={(value) => setDesc(i, value)}
+            placeholder={tx('例如：小恐龙慢慢变成公主（不要写具体角色名）')}
+            minHeight={80}
+          />
         ))}
         <div className="flex flex-wrap items-center gap-2">
           <button onClick={generate} disabled={busy || hasPending} className="kid-button-primary">
-            {busy ? '提交中…' : hasPending ? '🎬 视频生成中…' : '🎥 生成视频'}
+            {busy
+              ? submitProgress
+                ? `提交中 ${submitProgress.current}/${submitProgress.total}…`
+                : '提交中…'
+              : hasPending
+                ? '🎬 视频生成中…'
+                : '🎥 生成视频'}
           </button>
           <VideoGenTimeHint />
         </div>
         {(busy || hasPending) && (
           <AiProgress
-            label="AI 正在生成视频，生成完成后会在下方自动播放并保存到素材库…"
+            label={tx('AI 正在生成视频，生成完成后会在下方自动播放并保存到素材库…')}
             estimate="平均每段约 3 分钟"
           />
         )}
         {error && (
-          <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{tx(error)}</div>
         )}
       </div>
 
       {showResults && (
         <div className="kid-card space-y-3">
-          <div className="text-sm font-bold">🎬 视频预览（按顺序）</div>
+          <div className="text-sm font-bold">{tx('🎬 视频预览（按顺序）')}</div>
           {segments.map((s, i) => {
             const src = s.videoUrl ? resolveUploadPath(s.videoUrl) : '';
             return (
               <div key={s.jobId} className="border-2 border-orange-100 rounded-2xl p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="text-sm font-bold">第 {i + 1} 段：{s.prompt}</div>
-                  <StatusTag status={s.status} />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {s.status === 'succeeded' && src && canMerge && (
+                      <label className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-800 bg-sky-50 border border-sky-200 rounded-full px-2.5 py-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={mergeSelected.has(i)}
+                          onChange={() => toggleMergeSelect(i)}
+                          className="rounded border-sky-300"
+                        />
+                        加入合成
+                      </label>
+                    )}
+                    <StatusTag status={s.status} queuePosition={s.queuePosition} />
+                  </div>
                 </div>
 
                 {(s.status === 'queued' || s.status === 'running') && (
                   <div className="aspect-video rounded-xl bg-slate-100 flex flex-col items-center justify-center gap-2 text-sm text-slate-500">
                     <span className="text-2xl animate-pulse">🎬</span>
-                    <span>AI 正在生成这一段视频，请稍候…</span>
+                    <span>{tx('AI 正在生成这一段视频，请稍候…')}</span>
+                    {typeof s.queuePosition === 'number' && s.queuePosition > 0 && (
+                      <span className="text-xs text-amber-700 font-semibold">
+                        前面还有 {s.queuePosition} 个任务在排队
+                      </span>
+                    )}
                     <VideoGenTimeHint />
                   </div>
                 )}
@@ -419,8 +626,17 @@ export function FrameVideoGame() {
                 )}
 
                 {s.status === 'failed' && (
-                  <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-                    {humanizeArkVideoError(s.error) || s.error || '生成失败，请换一段描述再试一次。'}
+                  <div className="space-y-2">
+                    <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                      {humanizeArkVideoError(s.error) || s.error || '生成失败，请换一段描述再试一次。'}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void retrySegment(i)}
+                      className="kid-button-ghost text-sm"
+                    >
+                      🔄 重试本段
+                    </button>
                   </div>
                 )}
               </div>
@@ -437,19 +653,39 @@ export function FrameVideoGame() {
 
           {canMerge && (
             <div className="border-2 border-sky-200 bg-sky-50/60 rounded-2xl p-4 space-y-3">
-              <div className="text-sm font-bold text-sky-900">🎞️ 拼接完整视频</div>
+              <div className="text-sm font-bold text-sky-900">{tx('🎞️ 拼接完整视频')}</div>
               <p className="text-sm text-sky-800">
-                把上面 {succeededSegments.length} 段视频按顺序合成一条完整视频，方便下载或给老师看板展示。
+                勾选上方连续的多段视频（例如第 1–3 段），合成一条长视频。已选 {mergeSelected.size} 段
+                {mergeSelection.length >= 2 ? `（第 ${mergeSelection[0] + 1}–${mergeSelection[mergeSelection.length - 1] + 1} 段）` : ''}。
               </p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={selectAllSucceededForMerge} className="kid-button-ghost text-sm">
+                  全选已完成
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMergeSelected(new Set());
+                    setMergedVideo(null);
+                    setMergeError(null);
+                  }}
+                  className="kid-button-ghost text-sm"
+                >
+                  清空选择
+                </button>
+              </div>
               {!mergedVideo && (
                 <button
                   type="button"
                   onClick={() => void mergeVideos()}
-                  disabled={mergeBusy}
+                  disabled={mergeBusy || !canMergeSelection}
                   className="kid-button-primary"
                 >
-                  {mergeBusy ? '正在拼接…' : '🔗 拼接为完整视频'}
+                  {mergeBusy ? '正在拼接…' : '🔗 拼接选中片段'}
                 </button>
+              )}
+              {mergeSelected.size > 0 && !canMergeSelection && (
+                <p className="text-xs text-amber-800 font-semibold">请选择至少 2 段且彼此连续的视频（不能跳段）。</p>
               )}
               {mergeError && (
                 <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
@@ -502,7 +738,7 @@ export function FrameVideoGame() {
   );
 }
 
-function StatusTag({ status }: { status: string }) {
+function StatusTag({ status, queuePosition }: { status: string; queuePosition?: number }) {
   const map: Record<string, string> = {
     queued: 'bg-slate-100 text-slate-600',
     running: 'bg-amber-100 text-amber-700',
@@ -510,5 +746,14 @@ function StatusTag({ status }: { status: string }) {
     failed: 'bg-rose-100 text-rose-700',
   };
   const label: Record<string, string> = { queued: '排队中', running: '生成中', succeeded: '已完成', failed: '失败' };
-  return <span className={`text-xs px-2 py-1 rounded-full ${map[status] || ''}`}>{label[status] || status}</span>;
+  const queueHint =
+    status === 'queued' && typeof queuePosition === 'number' && queuePosition > 0
+      ? ` · 前${queuePosition}人`
+      : '';
+  return (
+    <span className={`text-xs px-2 py-1 rounded-full ${map[status] || ''}`}>
+      {label[status] || status}
+      {queueHint}
+    </span>
+  );
 }

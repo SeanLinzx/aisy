@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/cn';
+import { useLanguage } from '@/contexts/language-context';
 
 interface ReturnToStandbyFabProps {
   /** 是否正在上课 */
@@ -23,13 +24,14 @@ export function ReturnToStandbyFab({
   onReturn,
   pad = false,
 }: ReturnToStandbyFabProps) {
+  const { tx } = useLanguage();
   if (!active) return null;
 
   const title = isStandby
-    ? '全班正在待机看课件，在上方选择环节并点击「启动环节」'
+    ? tx('全班正在待机看课件，在上方选择环节并点击「启动环节」')
     : hasSlides
-      ? '停止当前环节，让学生回到黑板看课件'
-      : '停止当前环节；请先上传或播放课件，学生才能看到黑板内容';
+      ? tx('停止当前环节，让学生回到黑板看课件')
+      : tx('停止当前环节；请先上传或播放课件，学生才能看到黑板内容');
 
   return (
     <button
@@ -37,7 +39,7 @@ export function ReturnToStandbyFab({
       onClick={onReturn}
       disabled={busy || isStandby}
       title={title}
-      aria-label={isStandby ? '待机中' : '回到待机状态'}
+      aria-label={isStandby ? tx('待机中') : tx('回到待机状态')}
       className={cn(
         'fixed right-4 z-50 flex items-center gap-2 rounded-full border-2 font-extrabold shadow-pop transition-all',
         'active:scale-95',
@@ -50,7 +52,7 @@ export function ReturnToStandbyFab({
       <span className="text-xl leading-none" aria-hidden>
         📺
       </span>
-      <span className="whitespace-nowrap">{isStandby ? '📺 待机中 · 可启动环节' : '回到待机状态'}</span>
+      <span className="whitespace-nowrap">{isStandby ? tx('📺 待机中 · 可启动环节') : tx('回到待机状态')}</span>
       {isStandby && (
         <span className="w-2.5 h-2.5 rounded-full bg-violet-500 animate-pulse shrink-0" aria-hidden />
       )}

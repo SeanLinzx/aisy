@@ -13,8 +13,13 @@ export async function persistCourseWebProject(opts: {
   description?: string;
   /** 生成后自动设为课程主页展示页 */
   setAsHomepage?: boolean;
-}): Promise<{ projectId: string; slug: string; url: string }> {
+  /** 基于哪一版修改（版本树父节点） */
+  parentVersionId?: string | null;
+  /** 版本说明（如对话修改意见） */
+  notes?: string;
+}): Promise<{ projectId: string; slug: string; url: string; versionId?: string }> {
   let pid = opts.projectId ?? null;
+  let versionId: string | undefined;
   if (!pid) {
     const r = await api.post('/web-projects', {
       title: opts.title,
@@ -25,14 +30,17 @@ export async function persistCourseWebProject(opts: {
       description: opts.description,
     });
     pid = r.data.id as string;
+    versionId = r.data.versions?.[0]?.id as string | undefined;
   } else {
-    await api.post(`/web-projects/${pid}/versions`, {
+    const vr = await api.post(`/web-projects/${pid}/versions`, {
       html: opts.html,
       css: opts.css,
       js: opts.js,
       prompt: opts.prompt,
-      notes: '课程作品更新',
+      notes: opts.notes ?? '课程作品更新',
+      parentVersionId: opts.parentVersionId ?? undefined,
     });
+    versionId = vr.data.id as string;
     if (opts.description) {
       await api.patch(`/web-projects/${pid}`, { description: opts.description });
     }
@@ -48,5 +56,5 @@ export async function persistCourseWebProject(opts: {
     }
   }
 
-  return { projectId: pid, slug, url: publishPath(slug) };
+  return { projectId: pid, slug, url: publishPath(slug), versionId };
 }

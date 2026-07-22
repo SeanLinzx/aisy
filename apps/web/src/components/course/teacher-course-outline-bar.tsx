@@ -1,11 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { COURSE_LESSONS, findGame, THEME_GRADIENT } from '@/lib/course-config';
 import { cn } from '@/lib/cn';
 
 /** 点一下就滚动到对应锚点，并短暂高亮一下，方便老师确认找对了地方 */
-function scrollToAndHighlight(id: string) {
+export function scrollToAndHighlight(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
   const nav = document.getElementById('teacher-sticky-nav');
@@ -17,45 +16,41 @@ function scrollToAndHighlight(id: string) {
 }
 
 /**
- * 常驻的课程大纲导航条：置顶显示 6 节课，点开某节课后在下方展开该课的游戏入口，
- * 点击游戏名会直接滚动到对应的「老师控制台区域」，不需要在长列表里翻找。
+ * 常驻的课程大纲导航条：置顶显示 6 节课，点课切换下方展开的任务区，
+ * 点任务名切换老师控制台焦点（可与学生当前环节不同，推送后才同步给学生）。
  */
 export function TeacherCourseOutlineBar({
   currentGameSlug,
+  viewLessonSlug,
+  viewGameSlug,
+  onLessonSelect,
+  onGameSelect,
   pad,
 }: {
   currentGameSlug: string | null;
+  viewLessonSlug: string;
+  viewGameSlug: string | null;
+  onLessonSelect: (lessonSlug: string) => void;
+  onGameSelect: (gameSlug: string, lessonSlug: string) => void;
   pad?: boolean;
 }) {
-  const [activeLessonSlug, setActiveLessonSlug] = useState(() => {
-    if (currentGameSlug) {
-      const found = findGame(currentGameSlug);
-      if (found) return found.lesson.slug;
-    }
-    return COURSE_LESSONS[0].slug;
-  });
-
-  useEffect(() => {
-    if (!currentGameSlug) return;
-    const found = findGame(currentGameSlug);
-    if (found) setActiveLessonSlug(found.lesson.slug);
-  }, [currentGameSlug]);
-
-  const activeLesson = COURSE_LESSONS.find((l) => l.slug === activeLessonSlug) ?? COURSE_LESSONS[0];
+  const activeLesson = COURSE_LESSONS.find((l) => l.slug === viewLessonSlug) ?? COURSE_LESSONS[0];
 
   return (
     <div className="space-y-1.5">
-      <div className="text-[11px] font-bold text-ink-soft px-1">📚 课程大纲 · 点课或游戏名直达对应控制台</div>
+      <div className="text-[11px] font-bold text-ink-soft px-1">
+        📚 课程大纲 · 点课/任务切换查看（推送后学生才同步到该环节）
+      </div>
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
         {COURSE_LESSONS.map((lesson) => {
-          const on = lesson.slug === activeLessonSlug;
+          const on = lesson.slug === viewLessonSlug;
           const isLive = currentGameSlug ? lesson.games.some((g) => g.slug === currentGameSlug) : false;
           return (
             <button
               key={lesson.slug}
               type="button"
               onClick={() => {
-                setActiveLessonSlug(lesson.slug);
+                onLessonSelect(lesson.slug);
                 scrollToAndHighlight(`lesson-${lesson.slug}`);
               }}
               className={cn(
@@ -75,7 +70,7 @@ export function TeacherCourseOutlineBar({
               <span className={cn('font-bold whitespace-nowrap', pad ? 'text-sm' : 'text-xs')}>
                 第{lesson.index}课 · {lesson.title}
               </span>
-              {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />}
+              {isLive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" title="学生正在此课" />}
             </button>
           );
         })}
@@ -84,21 +79,28 @@ export function TeacherCourseOutlineBar({
       <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-1 px-1">
         {activeLesson.games.map((g) => {
           const live = currentGameSlug === g.slug;
+          const viewing = viewGameSlug === g.slug;
           return (
             <button
               key={g.slug}
               type="button"
-              onClick={() => scrollToAndHighlight(`game-${g.slug}`)}
+              onClick={() => {
+                onGameSelect(g.slug, activeLesson.slug);
+                scrollToAndHighlight(`game-${g.slug}`);
+              }}
               className={cn(
                 'shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-bold transition',
-                live
-                  ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
-                  : 'border-orange-100 bg-white/70 text-ink-soft hover:border-orange-200',
+                viewing
+                  ? 'border-brand bg-orange-50 text-brand ring-2 ring-brand/20'
+                  : live
+                    ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                    : 'border-orange-100 bg-white/70 text-ink-soft hover:border-orange-200',
                 pad && 'py-1.5 px-3 text-xs',
               )}
             >
               {g.emoji} {g.title}
-              {live && ' ·live'}
+              {live && !viewing && ' ·live'}
+              {viewing && ' ·查看中'}
             </button>
           );
         })}

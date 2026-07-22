@@ -1,5 +1,6 @@
 'use client';
 import { WorkCard, type WorkCardField } from '@/components/course/work-card';
+import { useLanguage } from '@/contexts/language-context';
 
 const FINAL_FIELDS: WorkCardField[] = [
   { key: 'learned', label: '我学会了什么？', emoji: '💡', placeholder: '例如：我学会了用提示词让 AI 画出我想要的画面。' },
@@ -14,27 +15,42 @@ const DAY1_FIELDS: WorkCardField[] = [
 ];
 
 function Intro({ text }: { text: string }) {
+  const { tx } = useLanguage();
   return (
     <div className="kid-card-mint">
-      <p className="text-sm font-semibold text-ink-soft leading-relaxed">📝 {text}</p>
+      <p className="text-sm font-semibold text-ink-soft leading-relaxed">📝 {tx(text)}</p>
     </div>
   );
 }
 
 export function WorkCardGame() {
+  const { tx } = useLanguage();
+  const fields = FINAL_FIELDS.map((f) => ({
+    ...f,
+    label: tx(f.label),
+    placeholder: tx(f.placeholder),
+  }));
+
   return (
     <div className="space-y-4">
       <Intro text="这是你这次训练营的「作品卡 2.0」。说说看你的收获吧！" />
-      <WorkCard fields={FINAL_FIELDS} version="2.0" />
+      <WorkCard fields={fields} version="2.0" />
     </div>
   );
 }
 
 export function WorkCard1Game() {
+  const { tx } = useLanguage();
+  const fields = DAY1_FIELDS.map((f) => ({
+    ...f,
+    label: tx(f.label),
+    placeholder: tx(f.placeholder),
+  }));
+
   return (
     <div className="space-y-4">
       <Intro text="第一天的作品卡 1.0：记录你对 AI 的第一印象和发现。" />
-      <WorkCard fields={DAY1_FIELDS} version="1.0" titlePrefix="我的 AI 发现卡" />
+      <WorkCard fields={fields} version="1.0" titlePrefix={tx('我的 AI 发现卡')} />
     </div>
   );
 }

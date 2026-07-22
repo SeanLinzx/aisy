@@ -1,9 +1,13 @@
-import { BadRequestException, Body, Controller, Delete, Get, Post, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, MessageEvent, Param, Post, Put, Query, Sse } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
+import { Observable } from 'rxjs';
 import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CourseService, type GameProgressReportInput } from './course.service';
+import { CourseStreamService } from './course-stream.service';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { BypassResponseWrap } from '../../common/decorators/bypass-response-wrap.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
 
 class TuringAnswerDto {
@@ -43,11 +47,18 @@ class PublishTuringSlotDto {
   @IsString() slotId!: string;
 }
 
+class ReportTuringDto {
+  @IsString() sessionId!: string;
+  @IsObject() picks!: Record<string, boolean>;
+  @IsOptional() @IsString() displayName?: string;
+}
+
 class SlidesDto {
   @IsString() url!: string;
   @IsString() name!: string;
   @IsNumber() page!: number;
   @IsOptional() @IsIn(['pdf', 'deck']) kind?: 'pdf' | 'deck';
+  @IsOptional() @IsBoolean() syncToStudents?: boolean;
 }
 
 class ShowcaseDto {
@@ -66,6 +77,12 @@ class ShowcaseDto {
   @IsNumber() pushedAt!: number;
 }
 
+class CampSongDto {
+  @IsBoolean() active!: boolean;
+  @IsNumber() startedAt!: number;
+  @IsOptional() @IsBoolean() syncStudents?: boolean;
+}
+
 class SetClassroomDto {
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsString() currentGame?: string | null;
@@ -73,6 +90,7 @@ class SetClassroomDto {
   @IsOptional() @IsIn(['game', 'slides', 'showcase']) mode?: 'game' | 'slides' | 'showcase';
   @IsOptional() @IsObject() slides?: SlidesDto | null;
   @IsOptional() @ValidateNested() @Type(() => ShowcaseDto) showcase?: ShowcaseDto | null;
+  @IsOptional() @ValidateNested() @Type(() => CampSongDto) campSong?: CampSongDto | null;
 }
 
 class CancelSubEventDto {
@@ -191,16 +209,91 @@ class ReportVideoRecognitionDto {
   answers!: VideoRecognitionAnswerDto[];
   @IsOptional() @IsString() displayName?: string;
   @IsOptional() @IsBoolean() done?: boolean;
+  @IsOptional() @IsString() submitQuestionId?: string;
 }
 
 class SetVideoRecognitionCurrentDto {
   @IsNumber() @Min(1) question!: number;
 }
 
+class PublishVideoRecognitionQuestionDto {
+  @IsIn(['single', 'compare']) template!: 'single' | 'compare';
+  @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsString() videoTitle?: string;
+  @IsOptional() @IsString() videoTopTitle?: string;
+  @IsOptional() @IsString() videoBottomTitle?: string;
+  @IsOptional() @IsString() videoHint?: string;
+  @IsOptional() @IsString() videoUrl?: string;
+  @IsOptional() @IsString() videoTopUrl?: string;
+  @IsOptional() @IsString() videoBottomUrl?: string;
+  @IsOptional() @IsString() emoji?: string;
+  @IsOptional() @IsString() bg?: string;
+  @IsString() correctOptionId!: string;
+}
+
 @ApiTags('course')
 @Controller('course')
 export class CourseController {
-  constructor(private readonly svc: CourseService) {}
+  constructor(
+    private readonly svc: CourseService,
+    private readonly stream: CourseStreamService,
+  ) {}
+
+  /**
+   * 学生端聚合状态（REST 兜底轮询用）：一次请求取回 classroom / 抢组 /
+   * 视频识别 / 图灵测试 / 取消续费全部快照，配合下面的 stream 端点使用。
+   */
+  @Get('stream/snapshot')
+  @Roles('student', 'teacher', 'admin')
+  getStreamSnapshot() {
+    return this.svc.getStudentStreamSnapshot();
+  }
+
+  /**
+   * 学生端聚合 SSE：一个长连接覆盖 classroom / 抢组 / 视频识别 / 图灵测试 /
+   * 取消续费全部通道。机房场景下浏览器对同源 HTTP/1.1 并发连接数有限（通常 6 条），
+   * 每个学生只开这一条常驻连接（而不是每个游戏各开一条），把连接压力降到最低，
+   * 给图片/视频等普通请求留出足够并发余量。
+   */
+  @Sse('stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamStudent(): Observable<MessageEvent> {
+    return this.stream.observeMany(
+      ['classroom', 'groupGrab', 'videoRecognition', 'turing', 'cancelSub'],
+      () => this.svc.getStudentStreamSnapshot(),
+    );
+  }
+
+  /**
+   * 教师中控台聚合 SSE：一个长连接替代 classroom / 游戏进度 / 抢组 / 取消续费 /
+   * 总结问答 / 视频识别 / 图灵测试等一整套 3s 轮询。连接建立时发一次全量快照，
+   * 之后老师或学生任何写操作都会在数百毫秒内推送增量过来。
+   */
+  @Sse('console/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('teacher', 'admin')
+  streamConsole(@Query('games') games?: string): Observable<MessageEvent> {
+    const slugs = games ? games.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    return this.stream.observeMany(
+      ['classroom', 'gameProgress', 'cancelSub', 'groupGrab', 'summary', 'videoRecognition', 'turing', 'turingResponses'],
+      async () => {
+        const state = await this.svc.getConsoleState(slugs);
+        return {
+          classroom: state.classroom,
+          gameProgress: state.gameProgress,
+          cancelSub: state.cancelSub,
+          groupGrab: state.groupGrab,
+          summary: state.summary,
+          videoRecognition: state.videoRecognition,
+          turing: state.turing.active,
+          turingResponses: state.turing.responses,
+        };
+      },
+    );
+  }
 
   /**
    * 教师中控台聚合状态：一次请求取回课堂 / 取消续费 / 抢组 / 创作进度 / 总结问答，
@@ -220,6 +313,15 @@ export class CourseController {
   @Roles('student', 'teacher', 'admin')
   getTuring() {
     return this.svc.getTuring();
+  }
+
+  /** SSE：老师发布新题时立即推给全班，替代学生端 5s 轮询 */
+  @Sse('turing/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamTuring(): Observable<MessageEvent> {
+    return this.stream.observe('turing', () => this.svc.getTuring());
   }
 
   @Put('turing')
@@ -252,12 +354,42 @@ export class CourseController {
     return this.svc.publishTuringFromSlot(dto.slotId);
   }
 
+  @Get('turing/responses')
+  @Roles('student', 'teacher', 'admin')
+  getTuringResponses() {
+    return this.svc.getTuringResponses();
+  }
+
+  @Post('turing/report')
+  @Roles('student', 'teacher', 'admin')
+  reportTuring(@Body() dto: ReportTuringDto, @CurrentUser() me: AuthUser) {
+    return this.svc.reportTuringResponse(me.id, dto.displayName || me.displayName || me.username, {
+      sessionId: dto.sessionId,
+      picks: dto.picks,
+    });
+  }
+
+  @Post('turing/responses/reset')
+  @Roles('teacher', 'admin')
+  resetTuringResponses() {
+    return this.svc.resetTuringResponses();
+  }
+
   // ---- 课堂控屏 ----
 
   @Get('classroom')
   @Roles('student', 'teacher', 'admin')
   getClassroom() {
     return this.svc.getClassroom();
+  }
+
+  /** SSE 推送课堂状态：老师写入后立即广播，替代学生端 3s 轮询 */
+  @Sse('classroom/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamClassroom(): Observable<MessageEvent> {
+    return this.stream.observe('classroom', () => this.svc.getClassroom());
   }
 
   @Put('classroom')
@@ -278,6 +410,15 @@ export class CourseController {
   @Roles('student', 'teacher', 'admin')
   getCancelSub() {
     return this.svc.getCancelSub();
+  }
+
+  /** SSE：老师开局 / 学生进度实时广播，替代学生端 5s 轮询 */
+  @Sse('cancel-sub/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamCancelSub(): Observable<MessageEvent> {
+    return this.stream.observe('cancelSub', () => this.svc.getCancelSub());
   }
 
   @Put('cancel-sub')
@@ -304,6 +445,15 @@ export class CourseController {
   @Roles('student', 'teacher', 'admin')
   getGroupGrab() {
     return this.svc.getGroupGrab();
+  }
+
+  /** SSE：抢组名额实时广播，避免多人同时抢位时因轮询延迟看到过期名额 */
+  @Sse('group-grab/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamGroupGrab(): Observable<MessageEvent> {
+    return this.stream.observe('groupGrab', () => this.svc.getGroupGrab());
   }
 
   @Put('group-grab')
@@ -438,6 +588,15 @@ export class CourseController {
     return this.svc.getVideoRecognition();
   }
 
+  /** SSE：老师切换当前题目时立即推给全班，替代学生端 3s 轮询 */
+  @Sse('video-recognition/stream')
+  @SkipThrottle()
+  @BypassResponseWrap()
+  @Roles('student', 'teacher', 'admin')
+  streamVideoRecognition(): Observable<MessageEvent> {
+    return this.stream.observe('videoRecognition', () => this.svc.getVideoRecognition());
+  }
+
   @Post('video-recognition/report')
   @Roles('student', 'teacher', 'admin')
   reportVideoRecognition(@Body() dto: ReportVideoRecognitionDto, @CurrentUser() me: AuthUser) {
@@ -445,7 +604,7 @@ export class CourseController {
       me.id,
       dto.displayName || me.displayName || me.username,
       dto.answers,
-      dto.done,
+      { done: dto.done, submitQuestionId: dto.submitQuestionId },
     );
   }
 
@@ -453,6 +612,18 @@ export class CourseController {
   @Roles('teacher', 'admin')
   setVideoRecognitionCurrent(@Body() dto: SetVideoRecognitionCurrentDto) {
     return this.svc.setVideoRecognitionCurrentQuestion(dto.question);
+  }
+
+  @Post('video-recognition/questions')
+  @Roles('teacher', 'admin')
+  publishVideoRecognitionQuestion(@Body() dto: PublishVideoRecognitionQuestionDto) {
+    return this.svc.publishVideoRecognitionQuestion(dto);
+  }
+
+  @Delete('video-recognition/questions/:id')
+  @Roles('teacher', 'admin')
+  deleteVideoRecognitionQuestion(@Param('id') id: string) {
+    return this.svc.deleteVideoRecognitionQuestion(id);
   }
 
   @Post('video-recognition/reset')

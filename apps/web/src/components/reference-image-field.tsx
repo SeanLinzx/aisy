@@ -1,6 +1,7 @@
 'use client';
 
 import { ImageUpload } from '@/components/course/image-upload';
+import { useLanguage } from '@/contexts/language-context';
 
 /** 儿童友好的参考图选择：本地上传或素材库，无需粘贴链接 */
 export function ReferenceImageField({
@@ -14,15 +15,16 @@ export function ReferenceImageField({
   label?: string;
   hint?: string;
 }) {
+  const { tx } = useLanguage();
   return (
     <div>
-      <label className="text-sm font-semibold">{label}</label>
-      <p className="text-xs text-slate-500 mt-0.5 mb-2">{hint}</p>
+      <label className="text-sm font-semibold">{tx(label)}</label>
+      <p className="text-xs text-slate-500 mt-0.5 mb-2">{tx(hint)}</p>
       <div className="max-w-[200px]">
         <ImageUpload
           value={value || null}
           onChange={onChange}
-          label="点这里选参考图"
+          label={tx('点这里选参考图')}
           showAssetLibrary
         />
       </div>
@@ -32,7 +34,7 @@ export function ReferenceImageField({
           onClick={() => onChange('')}
           className="mt-2 text-xs font-bold text-rose-500 hover:text-rose-600"
         >
-          ✕ 不用参考图了
+          {tx('✕ 不用参考图了')}
         </button>
       )}
     </div>

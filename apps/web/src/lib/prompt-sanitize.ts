@@ -18,5 +18,11 @@ export function humanizeArkVideoError(message?: string | null): string | undefin
   if (lower.includes('copyright')) {
     return '生成被拒绝：描述或参考图可能涉及受版权保护的角色/作品。请改用通用描述（例如「奶黄色小恐龙变成公主」，不要写具体角色名），再试一次。';
   }
+  if (lower.includes('headers timeout') || lower.includes('header timeout')) {
+    return '视频服务响应超时，任务可能仍在后台处理。请稍等片刻查看下方进度，或稍后重试。';
+  }
+  if (lower.includes('video polling timed out') || lower.includes('polling timed out')) {
+    return '本段视频生成时间较长已超时。请点击「重试本段」再试一次。';
+  }
   return message;
 }

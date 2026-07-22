@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseJson, stringifyJson } from '../../common/utils/json';
+import { CourseStreamService } from './course-stream.service';
 
 const TURING_KEY = 'course.turing.active';
 const TURING_BANK_KEY = 'course.turing.bank';
+const TURING_RESPONSES_KEY = 'course.turing.responses';
 export const TURING_MAX_ANSWER_LEN = 15;
 export const TURING_PENDING_COUNT = 3;
 const CLASSROOM_KEY = 'course.classroom.active';
@@ -27,6 +29,27 @@ export interface TuringSession {
   createdAt: number;
   /** 来自哪道待定题 */
   slotId?: string;
+}
+
+export interface TuringStudentRecord {
+  studentId: string;
+  displayName: string;
+  picks: Record<string, boolean>;
+  correctCount: number;
+  totalCount: number;
+  done: boolean;
+  updatedAt: number;
+}
+
+export interface TuringResponsesSession {
+  id: string;
+  turingSessionId: string;
+  question: string;
+  answers: TuringAnswer[];
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+  records: Record<string, TuringStudentRecord>;
 }
 
 export interface TuringPendingSlot {
@@ -62,13 +85,18 @@ const DEFAULT_TURING_BANK: TuringQuestionBank = {
  */
 @Injectable()
 export class CourseService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly stream: CourseStreamService,
+  ) {}
 
   /** key → 上一个未完成的写操作，形成串行链 */
   private readonly locks = new Map<string, Promise<unknown>>();
   /** key → 短 TTL 读缓存（写入/删除时同步更新，单实例内保证一致） */
   private readonly cache = new Map<string, { value: unknown; expires: number }>();
-  private static readonly CACHE_TTL_MS = 1500;
+  private static readonly CACHE_TTL_MS = 1000;
+  private static readonly CONSOLE_CACHE_TTL_MS = 1000;
+  private consoleCache: { value: ConsoleState | null; expires: number } | null = null;
 
   /** 同一 key 的读-改-写串行执行，防止并发上报丢数据 */
   private runExclusive<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -114,15 +142,56 @@ export class CourseService {
   // ---- 教师中控台聚合状态（一次轮询替代 5+ 个请求） ----
 
   async getConsoleState(games?: string[]): Promise<ConsoleState> {
-    const [classroom, cancelSub, groupGrab, gameProgress, summary, videoRecognition] = await Promise.all([
+    const now = Date.now();
+    if (this.consoleCache && this.consoleCache.expires > now && !games?.length) {
+      return this.consoleCache.value!;
+    }
+    const [classroom, cancelSub, groupGrab, gameProgress, summary, videoRecognition, turingActive, turingResponses] =
+      await Promise.all([
       this.getClassroom(),
       this.getCancelSub(),
       this.getGroupGrab(),
       this.getGameProgress(games),
       this.getSummary(),
       this.getVideoRecognition(),
+      this.getTuring(),
+      this.getTuringResponses(),
     ]);
-    return { classroom, cancelSub, groupGrab, gameProgress, summary, videoRecognition, now: Date.now() };
+    const state = {
+      classroom,
+      cancelSub,
+      groupGrab,
+      gameProgress,
+      summary,
+      videoRecognition,
+      turing: { active: turingActive, responses: turingResponses },
+      now: Date.now(),
+    };
+    if (!games?.length) {
+      this.consoleCache = { value: state, expires: now + CourseService.CONSOLE_CACHE_TTL_MS };
+    }
+    return state;
+  }
+
+  /**
+   * 学生端一次连接需要的全部实时通道快照（不含仅供教师查看的
+   * gameProgress / summary / turingResponses，减小单条 SSE 的初始负载）。
+   */
+  async getStudentStreamSnapshot(): Promise<{
+    classroom: ClassroomState | null;
+    groupGrab: GroupGrabSession | null;
+    videoRecognition: VideoRecognitionSession | null;
+    turing: TuringSession | null;
+    cancelSub: CancelSubSession | null;
+  }> {
+    const [classroom, groupGrab, videoRecognition, turing, cancelSub] = await Promise.all([
+      this.getClassroom(),
+      this.getGroupGrab(),
+      this.getVideoRecognition(),
+      this.getTuring(),
+      this.getCancelSub(),
+    ]);
+    return { classroom, groupGrab, videoRecognition, turing, cancelSub };
   }
 
   async getTuring(): Promise<TuringSession | null> {
@@ -141,11 +210,88 @@ export class CourseService {
       slotId: input.slotId,
       createdAt: Date.now(),
     };
-    return this.runExclusive(TURING_KEY, () => this.writeState(TURING_KEY, session));
+    const saved = await this.runExclusive(TURING_KEY, () => this.writeState(TURING_KEY, session));
+    this.stream.publish('turing', saved);
+    await this.resetTuringResponsesForSession(saved);
+    return saved;
   }
 
   async clearTuring(): Promise<{ ok: true }> {
-    return this.clearState(TURING_KEY);
+    await this.clearState(TURING_KEY);
+    await this.clearState(TURING_RESPONSES_KEY);
+    this.stream.publish('turing', null);
+    this.stream.publish('turingResponses', null);
+    return { ok: true };
+  }
+
+  async getTuringResponses(): Promise<TuringResponsesSession | null> {
+    return this.readState<TuringResponsesSession>(TURING_RESPONSES_KEY);
+  }
+
+  async reportTuringResponse(
+    studentId: string,
+    displayName: string,
+    input: { sessionId: string; picks: Record<string, boolean> },
+  ): Promise<TuringResponsesSession> {
+    return this.runExclusive(TURING_RESPONSES_KEY, async () => {
+      const active = await this.getTuring();
+      if (!active || active.id !== input.sessionId) {
+        throw new BadRequestException('题目已更新，请刷新后重新作答');
+      }
+      let session =
+        (await this.readState<TuringResponsesSession>(TURING_RESPONSES_KEY, { fresh: true }))
+        ?? this.buildEmptyTuringResponses(active);
+      if (session.turingSessionId !== active.id) {
+        session = this.buildEmptyTuringResponses(active);
+      }
+      const correctCount = active.answers.filter((a) => !!input.picks[a.id] === a.isAI).length;
+      session.records[studentId] = {
+        studentId,
+        displayName: displayName || studentId,
+        picks: input.picks,
+        correctCount,
+        totalCount: active.answers.length,
+        done: true,
+        updatedAt: Date.now(),
+      };
+      return this.saveTuringResponses(session);
+    });
+  }
+
+  async resetTuringResponses(): Promise<TuringResponsesSession | null> {
+    const active = await this.getTuring();
+    if (!active) {
+      await this.clearState(TURING_RESPONSES_KEY);
+      return null;
+    }
+    return this.resetTuringResponsesForSession(active);
+  }
+
+  private async resetTuringResponsesForSession(active: TuringSession): Promise<TuringResponsesSession> {
+    return this.runExclusive(TURING_RESPONSES_KEY, () =>
+      this.saveTuringResponses(this.buildEmptyTuringResponses(active)),
+    );
+  }
+
+  private buildEmptyTuringResponses(active: TuringSession): TuringResponsesSession {
+    const now = Date.now();
+    return {
+      id: `tr${now}`,
+      turingSessionId: active.id,
+      question: active.question,
+      answers: active.answers,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      records: {},
+    };
+  }
+
+  private async saveTuringResponses(session: TuringResponsesSession): Promise<TuringResponsesSession> {
+    session.updatedAt = Date.now();
+    const saved = await this.writeState(TURING_RESPONSES_KEY, session);
+    this.stream.publish('turingResponses', saved);
+    return saved;
   }
 
   async getTuringBank(): Promise<TuringQuestionBank> {
@@ -229,6 +375,7 @@ export class CourseService {
       mode?: ClassroomMode;
       slides?: SlidesState | null;
       showcase?: ClassroomShowcase | null;
+      campSong?: CampSongState | null;
     },
   ): Promise<ClassroomState> {
     return this.runExclusive(CLASSROOM_KEY, async () => {
@@ -271,15 +418,20 @@ export class CourseService {
         mode,
         slides: patch.slides !== undefined ? patch.slides : prev?.slides ?? null,
         showcase,
+        campSong: patch.campSong !== undefined ? patch.campSong : prev?.campSong ?? null,
         startedAt: prev?.startedAt ?? now,
         updatedAt: now,
       };
-      return this.writeState(CLASSROOM_KEY, next);
+      const saved = await this.writeState(CLASSROOM_KEY, next);
+      this.stream.publish('classroom', saved);
+      return saved;
     });
   }
 
   async clearClassroom(): Promise<{ ok: true }> {
-    return this.clearState(CLASSROOM_KEY);
+    const result = await this.clearState(CLASSROOM_KEY);
+    this.stream.publish('classroom', null);
+    return result;
   }
 
   // ---- 「来取消续费吧」课堂游戏 ----
@@ -296,7 +448,7 @@ export class CourseService {
       createdAt: Date.now(),
       records: {},
     };
-    return this.runExclusive(CANCEL_SUB_KEY, () => this.writeState(CANCEL_SUB_KEY, session));
+    return this.runExclusive(CANCEL_SUB_KEY, () => this.saveCancelSub(session));
   }
 
   async reportCancelSubEvent(
@@ -334,12 +486,20 @@ export class CourseService {
       }
 
       session.records[studentId] = next;
-      return this.writeState(CANCEL_SUB_KEY, session);
+      return this.saveCancelSub(session);
     });
   }
 
   async clearCancelSub(): Promise<{ ok: true }> {
-    return this.clearState(CANCEL_SUB_KEY);
+    const result = await this.clearState(CANCEL_SUB_KEY);
+    this.stream.publish('cancelSub', null);
+    return result;
+  }
+
+  private async saveCancelSub(session: CancelSubSession): Promise<CancelSubSession> {
+    const saved = await this.writeState(CANCEL_SUB_KEY, session);
+    this.stream.publish('cancelSub', saved);
+    return saved;
   }
 
   // ---- 第 1 课 · 抢组活动 ----
@@ -350,7 +510,9 @@ export class CourseService {
 
   private async saveGroupGrab(session: GroupGrabSession): Promise<GroupGrabSession> {
     session.updatedAt = Date.now();
-    return this.writeState(GROUP_GRAB_KEY, session);
+    const saved = await this.writeState(GROUP_GRAB_KEY, session);
+    this.stream.publish('groupGrab', saved);
+    return saved;
   }
 
   async setupGroupGrab(
@@ -526,7 +688,9 @@ export class CourseService {
   }
 
   async clearGroupGrab(): Promise<{ ok: true }> {
-    return this.clearState(GROUP_GRAB_KEY);
+    const result = await this.clearState(GROUP_GRAB_KEY);
+    this.stream.publish('groupGrab', null);
+    return result;
   }
 
   private findStudentGroup(session: GroupGrabSession, studentId: string): GroupGrabSlot | undefined {
@@ -629,7 +793,9 @@ export class CourseService {
   }
 
   async clearGameProgress(): Promise<{ ok: true }> {
-    return this.clearState(GAME_PROGRESS_KEY);
+    const result = await this.clearState(GAME_PROGRESS_KEY);
+    this.stream.publish('gameProgress', null);
+    return result;
   }
 
   /** 合并学生在同一环节多次创作的作品历史（最多保留 20 条） */
@@ -683,7 +849,9 @@ export class CourseService {
 
   private async saveGameProgress(session: GameProgressSession): Promise<GameProgressSession> {
     session.updatedAt = Date.now();
-    return this.writeState(GAME_PROGRESS_KEY, session);
+    const saved = await this.writeState(GAME_PROGRESS_KEY, session);
+    this.stream.publish('gameProgress', saved);
+    return saved;
   }
 
   // ---- 大侦探总结分享 · 问答 ----
@@ -729,7 +897,9 @@ export class CourseService {
   }
 
   async clearSummary(): Promise<{ ok: true }> {
-    return this.clearState(SUMMARY_KEY);
+    const result = await this.clearState(SUMMARY_KEY);
+    this.stream.publish('summary', null);
+    return result;
   }
 
   private emptySummarySession(): SummarySession {
@@ -739,7 +909,9 @@ export class CourseService {
 
   private async saveSummary(session: SummarySession): Promise<SummarySession> {
     session.updatedAt = Date.now();
-    return this.writeState(SUMMARY_KEY, session);
+    const saved = await this.writeState(SUMMARY_KEY, session);
+    this.stream.publish('summary', saved);
+    return saved;
   }
 
   // ---- AI 视频识别 · 课堂问答 ----
@@ -752,25 +924,30 @@ export class CourseService {
     studentId: string,
     displayName: string,
     answers: VideoRecognitionAnswerInput[],
-    done?: boolean,
+    opts?: { done?: boolean; submitQuestionId?: string },
   ): Promise<VideoRecognitionSession> {
     return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
-      const session =
+      const session = this.normalizeVideoRecognitionSession(
         (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
-        ?? this.emptyVideoRecognitionSession();
+          ?? this.emptyVideoRecognitionSession(),
+      );
       const prev = session.records[studentId];
       const record: VideoRecognitionStudentRecord = {
         studentId,
         displayName: displayName || prev?.displayName || studentId,
         answers: { ...(prev?.answers || {}) },
-        done: !!done,
+        done: !!opts?.done,
         updatedAt: Date.now(),
       };
       for (const a of answers) {
         if (!a.questionId) continue;
+        const prevAnswer = record.answers[a.questionId];
+        const submitting = opts?.submitQuestionId === a.questionId;
         record.answers[a.questionId] = {
           optionId: a.optionId,
           optionLabel: a.optionLabel?.slice(0, 100),
+          submitted: submitting ? true : prevAnswer?.submitted,
+          submittedAt: submitting ? Date.now() : prevAnswer?.submittedAt,
         };
       }
       session.records[studentId] = record;
@@ -781,10 +958,78 @@ export class CourseService {
 
   async setVideoRecognitionCurrentQuestion(question: number): Promise<VideoRecognitionSession> {
     return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
-      const session =
+      const session = this.normalizeVideoRecognitionSession(
         (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
-        ?? this.emptyVideoRecognitionSession();
-      session.currentQuestion = Math.max(1, Math.min(10, Math.floor(question)));
+          ?? this.emptyVideoRecognitionSession(),
+      );
+      const max = Math.max(1, session.questions.length);
+      session.currentQuestion = Math.max(1, Math.min(max, Math.floor(question)));
+      return this.saveVideoRecognition(session);
+    });
+  }
+
+  async publishVideoRecognitionQuestion(
+    input: PublishVideoRecognitionQuestionInput,
+  ): Promise<VideoRecognitionSession> {
+    const template = input.template === 'compare' ? 'compare' : 'single';
+    const validIds =
+      template === 'compare'
+        ? new Set(['top', 'bottom', 'both', 'neither'])
+        : new Set(['yes', 'no']);
+    if (!validIds.has(input.correctOptionId)) {
+      throw new BadRequestException('正确答案选项无效');
+    }
+
+    return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
+      const session = this.normalizeVideoRecognitionSession(
+        (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
+          ?? this.emptyVideoRecognitionSession(),
+      );
+      const num = session.questions.length + 1;
+      const id = `vrq${num}_${Date.now()}`;
+      session.questions.push({
+        id,
+        num,
+        template,
+        title: input.title?.slice(0, 200),
+        videoTitle:
+          template === 'single'
+            ? input.videoTitle?.trim()?.slice(0, 100) || '视频 1'
+            : input.videoTitle?.slice(0, 100),
+        videoTopTitle:
+          template === 'compare'
+            ? input.videoTopTitle?.trim()?.slice(0, 100) || '视频 1'
+            : input.videoTopTitle?.slice(0, 100),
+        videoBottomTitle:
+          template === 'compare'
+            ? input.videoBottomTitle?.trim()?.slice(0, 100) || '视频 2'
+            : input.videoBottomTitle?.slice(0, 100),
+        videoHint: input.videoHint?.slice(0, 300),
+        videoUrl: input.videoUrl,
+        videoTopUrl: input.videoTopUrl,
+        videoBottomUrl: input.videoBottomUrl,
+        emoji: input.emoji?.slice(0, 8) || (template === 'compare' ? '↕️' : '🎬'),
+        bg: input.bg || (template === 'compare' ? 'from-violet-300 to-sky-200' : 'from-sky-300 to-emerald-200'),
+        correctOptionId: input.correctOptionId,
+      });
+      session.currentQuestion = num;
+      session.active = true;
+      return this.saveVideoRecognition(session);
+    });
+  }
+
+  async deleteVideoRecognitionQuestion(questionId: string): Promise<VideoRecognitionSession> {
+    return this.runExclusive(VIDEO_RECOGNITION_KEY, async () => {
+      const session = this.normalizeVideoRecognitionSession(
+        (await this.readState<VideoRecognitionSession>(VIDEO_RECOGNITION_KEY, { fresh: true }))
+          ?? this.emptyVideoRecognitionSession(),
+      );
+      session.questions = session.questions
+        .filter((q) => q.id !== questionId)
+        .map((q, i) => ({ ...q, num: i + 1 }));
+      if (session.currentQuestion > session.questions.length) {
+        session.currentQuestion = Math.max(1, session.questions.length);
+      }
       return this.saveVideoRecognition(session);
     });
   }
@@ -794,17 +1039,28 @@ export class CourseService {
   }
 
   async clearVideoRecognition(): Promise<{ ok: true }> {
-    return this.clearState(VIDEO_RECOGNITION_KEY);
+    const result = await this.clearState(VIDEO_RECOGNITION_KEY);
+    this.stream.publish('videoRecognition', null);
+    return result;
   }
 
   private emptyVideoRecognitionSession(): VideoRecognitionSession {
     const now = Date.now();
-    return { id: `vr${now}`, active: true, currentQuestion: 1, createdAt: now, updatedAt: now, records: {} };
+    return { id: `vr${now}`, active: true, currentQuestion: 1, questions: [], createdAt: now, updatedAt: now, records: {} };
+  }
+
+  private normalizeVideoRecognitionSession(session: VideoRecognitionSession): VideoRecognitionSession {
+    return {
+      ...session,
+      questions: Array.isArray(session.questions) ? session.questions : [],
+    };
   }
 
   private async saveVideoRecognition(session: VideoRecognitionSession): Promise<VideoRecognitionSession> {
     session.updatedAt = Date.now();
-    return this.writeState(VIDEO_RECOGNITION_KEY, session);
+    const saved = await this.writeState(VIDEO_RECOGNITION_KEY, session);
+    this.stream.publish('videoRecognition', saved);
+    return saved;
   }
 
   // ---- 游戏草稿（学生端跨主题 / 刷新恢复） ----
@@ -848,6 +1104,7 @@ export interface ConsoleState {
   gameProgress: GameProgressSession | null;
   summary: SummarySession | null;
   videoRecognition: VideoRecognitionSession | null;
+  turing: { active: TuringSession | null; responses: TuringResponsesSession | null };
   now: number;
 }
 
@@ -897,6 +1154,16 @@ export interface SlidesState {
   page: number;
   /** pdf = 上传的 PDF；deck = 内置互动 HTML 课件 */
   kind?: 'pdf' | 'deck';
+  /** 是否同步到学生端；false = 仅老师端预览 */
+  syncToStudents?: boolean;
+}
+
+export interface CampSongState {
+  active: boolean;
+  /** 老师点击播放时的时间戳，供学生端对齐进度 */
+  startedAt: number;
+  /** 是否让学生端一起播放 */
+  syncStudents?: boolean;
 }
 
 export interface ClassroomState {
@@ -910,6 +1177,8 @@ export interface ClassroomState {
   slides: SlidesState | null;
   /** 老师推送给全班展示的优秀作品（邀请同学分享） */
   showcase: ClassroomShowcase | null;
+  /** 营歌播放状态（不影响当前课堂环节） */
+  campSong: CampSongState | null;
   /** 参与的学生 id 列表；空数组 = 所有学生 */
   students: string[];
   startedAt: number;
@@ -1070,9 +1339,43 @@ export interface VideoRecognitionAnswerInput {
   optionLabel?: string;
 }
 
+export interface PublishVideoRecognitionQuestionInput {
+  template: 'single' | 'compare';
+  title?: string;
+  videoTitle?: string;
+  videoTopTitle?: string;
+  videoBottomTitle?: string;
+  videoHint?: string;
+  videoUrl?: string;
+  videoTopUrl?: string;
+  videoBottomUrl?: string;
+  emoji?: string;
+  bg?: string;
+  correctOptionId: string;
+}
+
 export interface VideoRecognitionAnswerRecord {
   optionId?: string;
   optionLabel?: string;
+  submitted?: boolean;
+  submittedAt?: number;
+}
+
+export interface VideoRecognitionQuestion {
+  id: string;
+  num: number;
+  template: 'single' | 'compare';
+  title?: string;
+  videoTitle?: string;
+  videoTopTitle?: string;
+  videoBottomTitle?: string;
+  videoHint?: string;
+  videoUrl?: string;
+  videoTopUrl?: string;
+  videoBottomUrl?: string;
+  emoji?: string;
+  bg?: string;
+  correctOptionId: string;
 }
 
 export interface VideoRecognitionStudentRecord {
@@ -1087,6 +1390,7 @@ export interface VideoRecognitionSession {
   id: string;
   active: boolean;
   currentQuestion: number;
+  questions: VideoRecognitionQuestion[];
   createdAt: number;
   updatedAt: number;
   records: Record<string, VideoRecognitionStudentRecord>;

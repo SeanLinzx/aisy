@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { classroomTargetPath } from '@/lib/classroom-lock';
 import type { ClassroomShowcase } from '@/lib/classroom-showcase';
+import { useLanguage } from '@/contexts/language-context';
 
 interface ClassroomState {
   active: boolean;
@@ -16,6 +17,7 @@ interface ClassroomState {
 
 /** 作品展示已改为右侧浮窗，此页自动跳回当前课堂页面 */
 export default function ShowcasePage() {
+  const { tx } = useLanguage();
   const router = useRouter();
   const [loaded, setLoaded] = useState(false);
 
@@ -42,14 +44,14 @@ export default function ShowcasePage() {
   }, [router]);
 
   if (!loaded) {
-    return <div className="kid-card text-sm text-ink-soft text-center py-12">加载中…</div>;
+    return <div className="kid-card text-sm text-ink-soft text-center py-12">{tx('加载中…')}</div>;
   }
 
   return (
     <div className="kid-card text-center py-12 space-y-3 max-w-lg mx-auto">
       <div className="text-4xl">🌟</div>
-      <p className="font-bold text-ink-soft">同学作品会在页面右侧弹出</p>
-      <p className="text-sm text-ink-soft">你可以继续做自己的任务，随时点开欣赏～</p>
+      <p className="font-bold text-ink-soft">{tx('同学作品会在页面右侧弹出')}</p>
+      <p className="text-sm text-ink-soft">{tx('你可以继续做自己的任务，随时点开欣赏～')}</p>
     </div>
   );
 }

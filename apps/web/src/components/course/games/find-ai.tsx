@@ -2,6 +2,7 @@
 import { useMemo, useState } from 'react';
 import { assetPath } from '@/lib/asset-path';
 import { reportGrowth } from '@/lib/growth-report';
+import { useLanguage } from '@/contexts/language-context';
 
 type Choice = 'ai' | 'not';
 
@@ -76,6 +77,7 @@ const SCENES: Scene[] = [
 ];
 
 export function FindAiGame() {
+  const { tx } = useLanguage();
   const [sceneIdx, setSceneIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, Choice>>({});
   const [checked, setChecked] = useState(false);
@@ -113,7 +115,7 @@ export function FindAiGame() {
     <div className="space-y-4">
       <div className="kid-card-sky">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🔍 在这个场景里，点一点每个东西，看看它的介绍，再判断它<b>是不是 AI</b>。全部判断完后点「提交答案」，看看你找对了没有！
+          🔍 {tx('在这个场景里，点一点每个东西，看看它的介绍，再判断它')}<b>{tx('是不是 AI')}</b>{tx('。全部判断完后点「提交答案」，看看你找对了没有！')}
         </p>
       </div>
 
@@ -125,7 +127,7 @@ export function FindAiGame() {
             onClick={() => switchScene(i)}
             className={`kid-button-sm border-2 ${i === sceneIdx ? 'bg-brand text-white border-brand' : 'bg-white text-ink-soft border-orange-200'}`}
           >
-            {s.emoji} {s.title}
+            {s.emoji} {tx(s.title)}
           </button>
         ))}
       </div>
@@ -178,7 +180,7 @@ export function FindAiGame() {
                 )}
               </span>
               <span className="text-[10px] md:text-xs font-bold bg-white/85 rounded-full px-1.5 py-0.5 text-ink whitespace-nowrap shadow-pop-sm">
-                {item.label}
+                {tx(item.label)}
                 {checked && item.isAI ? ' 🤖' : ''}
               </span>
             </button>
@@ -188,7 +190,7 @@ export function FindAiGame() {
 
       {!checked ? (
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="tag">{Object.keys(answers).length}/{scene.items.length} 已判断</span>
+          <span className="tag">{Object.keys(answers).length}/{scene.items.length}{tx(' 已判断')}</span>
           <button
             onClick={() => {
               setChecked(true);
@@ -211,18 +213,18 @@ export function FindAiGame() {
             disabled={!allAnswered}
             className="kid-button-primary disabled:opacity-50"
           >
-            {allAnswered ? '✅ 提交答案' : '把每个都判断一下吧'}
+            {allAnswered ? tx('✅ 提交答案') : tx('把每个都判断一下吧')}
           </button>
         </div>
       ) : (
         <div className="space-y-3">
           <div className={`kid-card ${result.wrong.length === 0 ? 'kid-card-mint' : 'kid-card-yellow'}`}>
             <div className="font-extrabold text-lg">
-              {result.wrong.length === 0 ? '🎉 全部答对啦！' : `答对了 ${result.correct}/${result.total} 个`}
+              {result.wrong.length === 0 ? tx('🎉 全部答对啦！') : `${tx('答对了')} ${result.correct}/${result.total}`}
             </div>
             {result.wrong.length > 0 && (
               <div className="mt-2 space-y-2">
-                <div className="text-sm font-bold text-rose-600">这些地方需要再想想（点图标或下面看解释）：</div>
+                <div className="text-sm font-bold text-rose-600">{tx('这些地方需要再想想（点图标或下面看解释）：')}</div>
                 {result.wrong.map((w) => (
                   <button
                     key={w.id}
@@ -230,13 +232,13 @@ export function FindAiGame() {
                     className="block w-full text-left text-sm rounded-xl px-3 py-2 bg-white border-2 border-rose-100 hover:border-rose-300"
                   >
                     <span className="mr-1">{w.emoji}</span>
-                    <b>{w.label}</b> —— 其实它{w.isAI ? '是 AI 🤖' : '不是 AI 🚫'}
+                    <b>{tx(w.label)}</b>{tx(' —— 其实它')}{w.isAI ? tx('是 AI 🤖') : tx('不是 AI 🚫')}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          <button onClick={() => switchScene(sceneIdx)} className="kid-button-ghost">🔄 再试一次</button>
+          <button onClick={() => switchScene(sceneIdx)} className="kid-button-ghost">{tx('🔄 再试一次')}</button>
         </div>
       )}
 
@@ -245,33 +247,33 @@ export function FindAiGame() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setActive(null)}>
           <div className="kid-card max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <div className="text-5xl text-center">{active.emoji}</div>
-            <div className="font-extrabold text-lg text-center mt-2">{active.label}</div>
+            <div className="font-extrabold text-lg text-center mt-2">{tx(active.label)}</div>
 
             {!checked ? (
               <>
-                <p className="text-sm text-ink-soft mt-3 leading-relaxed text-center">{active.intro}</p>
-                <div className="mt-2 text-center text-sm font-bold text-ink">你觉得它是 AI 吗？</div>
+                <p className="text-sm text-ink-soft mt-3 leading-relaxed text-center">{tx(active.intro)}</p>
+                <div className="mt-2 text-center text-sm font-bold text-ink">{tx('你觉得它是 AI 吗？')}</div>
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <button onClick={() => answer(active.id, 'ai')} className="kid-button bg-violet-500 text-white shadow-pop-purple hover:bg-violet-600">
-                    🤖 是 AI
+                    {tx('🤖 是 AI')}
                   </button>
                   <button onClick={() => answer(active.id, 'not')} className="kid-button-ghost">
-                    🚫 不是 AI
+                    {tx('🚫 不是 AI')}
                   </button>
                 </div>
                 {answers[active.id] && (
                   <div className="mt-3 text-center text-xs text-ink-soft">
-                    你已选择：{answers[active.id] === 'ai' ? '🤖 是 AI' : '🚫 不是 AI'}（可重新选择）
+                    {tx('你已选择：')}{answers[active.id] === 'ai' ? tx('🤖 是 AI') : tx('🚫 不是 AI')}{tx('（可重新选择）')}
                   </div>
                 )}
               </>
             ) : (
               <>
                 <div className={`text-center mt-1 text-sm font-bold ${active.isAI ? 'text-emerald-600' : 'text-slate-500'}`}>
-                  {active.isAI ? '这是 AI 🤖' : '这不是 AI 🚫'}
+                  {active.isAI ? tx('这是 AI 🤖') : tx('这不是 AI 🚫')}
                 </div>
-                <p className="text-sm text-ink-soft mt-3 leading-relaxed text-center">{active.explanation}</p>
-                <button onClick={() => setActive(null)} className="kid-button-primary w-full mt-4">我知道啦</button>
+                <p className="text-sm text-ink-soft mt-3 leading-relaxed text-center">{tx(active.explanation)}</p>
+                <button onClick={() => setActive(null)} className="kid-button-primary w-full mt-4">{tx('我知道啦')}</button>
               </>
             )}
           </div>

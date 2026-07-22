@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 import { ClassesService } from './classes.service';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthUser } from '../../common/decorators/current-user.decorator';
@@ -8,6 +8,16 @@ import { CurrentUser, AuthUser } from '../../common/decorators/current-user.deco
 class CreateClassDto {
   @IsString() name!: string;
   @IsOptional() @IsString() description?: string;
+}
+
+class BatchMembersDto {
+  @IsIn(['add', 'remove'])
+  action!: 'add' | 'remove';
+
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  userIds!: string[];
 }
 
 @ApiTags('classes')
@@ -52,6 +62,12 @@ export class ClassesController {
   @Roles('admin', 'teacher')
   addMember(@Param('id') id: string, @Body('userId') userId: string) {
     return this.classes.addMember(id, userId);
+  }
+
+  @Post(':id/members/batch')
+  @Roles('admin', 'teacher')
+  batchMembers(@Param('id') id: string, @Body() dto: BatchMembersDto) {
+    return this.classes.batchMembers(id, dto.action, dto.userIds);
   }
 
   @Delete(':id/members/:userId')

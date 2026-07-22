@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { apiAuth } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { useLanguage } from '@/contexts/language-context';
 
 const SIDEBAR_COLLAPSED_KEY = 'ai-camp-sidebar-collapsed';
 
@@ -15,13 +16,15 @@ export interface NavItem {
   color?: 'pink' | 'sky' | 'mint' | 'yellow' | 'purple' | 'orange';
   /** 除 href 外，这些路径前缀也会高亮此项 */
   matchPrefixes?: string[];
+  /** 子菜单（老师后台等层级导航） */
+  children?: NavItem[];
 }
 
-const ROLE_BADGE: Record<string, { emoji: string; label: string; bg: string }> = {
-  student: { emoji: '🧒', label: '学生',   bg: 'bg-gradient-to-br from-amber-200 to-pink-300' },
-  teacher: { emoji: '👩‍🏫', label: '老师',   bg: 'bg-gradient-to-br from-emerald-200 to-sky-300' },
-  parent:  { emoji: '👨‍👧', label: '家长',   bg: 'bg-gradient-to-br from-yellow-200 to-orange-300' },
-  admin:   { emoji: '🛠️', label: '管理员', bg: 'bg-gradient-to-br from-violet-200 to-fuchsia-300' },
+const ROLE_BADGE_KEYS: Record<string, { emoji: string; labelKey: string; labelFallback: string; bg: string }> = {
+  student: { emoji: '🧒', labelKey: 'shell.role.student', labelFallback: '学生',   bg: 'bg-gradient-to-br from-amber-200 to-pink-300' },
+  teacher: { emoji: '👩‍🏫', labelKey: 'shell.role.teacher', labelFallback: '老师',   bg: 'bg-gradient-to-br from-emerald-200 to-sky-300' },
+  parent:  { emoji: '👨‍👧', labelKey: 'shell.role.parent', labelFallback: '家长',   bg: 'bg-gradient-to-br from-yellow-200 to-orange-300' },
+  admin:   { emoji: '🛠️', labelKey: 'shell.role.admin', labelFallback: '管理员', bg: 'bg-gradient-to-br from-violet-200 to-fuchsia-300' },
 };
 
 const ACTIVE_GRADIENT: Record<NonNullable<NavItem['color']>, string> = {
@@ -66,6 +69,7 @@ export function RoleShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { t, tx } = useLanguage();
   const [collapsed, setCollapsed] = useState(false);
   const inClassRef = useRef(false);
 
@@ -112,7 +116,8 @@ export function RoleShell({
     router.refresh();
   }
 
-  const badge = ROLE_BADGE[user.role] ?? ROLE_BADGE.student;
+  const badgeKey = ROLE_BADGE_KEYS[user.role] ?? ROLE_BADGE_KEYS.student;
+  const badge = { emoji: badgeKey.emoji, label: t(badgeKey.labelKey, badgeKey.labelFallback), bg: badgeKey.bg };
   const isPad = variant === 'pad';
 
   if (isPad) {
@@ -122,7 +127,7 @@ export function RoleShell({
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-2xl shrink-0">📱</span>
             <div className="min-w-0">
-              <div className="font-display font-extrabold text-lg text-rainbow truncate">AI Camp 平板</div>
+              <div className="font-display font-extrabold text-lg text-rainbow truncate">{t('shell.padTitle', 'AI Camp 平板')}</div>
               <div className="text-[11px] font-bold text-ink-soft truncate">
                 {badge.emoji} {user.displayName} · {title}
               </div>
@@ -130,14 +135,14 @@ export function RoleShell({
           </div>
           {navLocked && (
             <span className="shrink-0 text-xs font-bold bg-violet-100 text-violet-700 rounded-full px-3 py-1.5">
-              🔒 {classroomLabel || '跟课中'}
+              🔒 {classroomLabel || tx('跟课中')}
             </span>
           )}
           <button
             onClick={logout}
             className="shrink-0 kid-button-sm bg-white border-2 border-orange-200 text-ink-soft min-h-[44px] px-4"
           >
-            👋 退出
+            👋 {t('shell.logout', '退出')}
           </button>
         </header>
 
@@ -198,8 +203,8 @@ export function RoleShell({
                 'shrink-0 rounded-xl border-2 border-orange-200 bg-white text-ink-soft hover:bg-orange-50 transition font-bold',
                 collapsed ? 'w-9 h-9 text-sm' : 'w-8 h-8 text-xs',
               )}
-              title={collapsed ? '展开侧边栏' : '收起侧边栏'}
-              aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+              title={collapsed ? t('shell.expandSidebar', '展开侧边栏') : t('shell.collapseSidebar', '收起侧边栏')}
+              aria-label={collapsed ? t('shell.expandSidebar', '展开侧边栏') : t('shell.collapseSidebar', '收起侧边栏')}
             >
               {collapsed ? '»' : '«'}
             </button>
@@ -220,47 +225,22 @@ export function RoleShell({
                 collapsed ? 'px-2 py-3 text-center' : 'px-4 py-4',
               )}
             >
-              <div className="text-xl">{collapsed ? '🔒' : '🔒 上课锁定中'}</div>
+              <div className="text-xl">{collapsed ? '🔒' : `🔒 ${t('shell.classLocked', '上课锁定中')}`}</div>
               {!collapsed && (
                 <>
                   <p className="text-xs font-bold mt-2 leading-relaxed">
-                    请跟随老师屏幕，暂时不能浏览其它页面。
+                    {t('shell.classLockedHint', '请跟随老师屏幕，暂时不能浏览其它页面。')}
                   </p>
                   {classroomLabel && (
                     <p className="text-[11px] font-semibold mt-2 text-violet-600 bg-white/70 rounded-xl px-2 py-1.5">
-                      当前：{classroomLabel}
+                      {t('shell.current', '当前：')}{classroomLabel}
                     </p>
                   )}
                 </>
               )}
             </div>
           ) : (
-            navItems.map((item, i) => {
-              const active = isNavActive(pathname, item);
-              const color = item.color ?? defaultColorFor(i);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  title={item.label}
-                  className={cn(
-                    'flex items-center rounded-2xl font-bold transition-all duration-150',
-                    collapsed ? 'justify-center px-2 py-3.5' : 'gap-3 px-4 py-3.5 text-[15px]',
-                    active
-                      ? `bg-gradient-to-r ${ACTIVE_GRADIENT[color]} text-white shadow-pop-sm ${collapsed ? '' : '-translate-y-0.5 animate-pop'}`
-                      : `text-ink-soft ${HOVER_BG[color]} ${collapsed ? '' : 'hover:-translate-y-0.5'}`,
-                  )}
-                >
-                  <span className={cn('text-xl leading-none', active && !collapsed && 'animate-bounceSoft')}>{item.emoji}</span>
-                  {!collapsed && (
-                    <>
-                      <span className="truncate">{item.label}</span>
-                      {active && <span className="ml-auto text-white/90 text-xs">›</span>}
-                    </>
-                  )}
-                </Link>
-              );
-            })
+            <SidebarNavLinks items={navItems} pathname={pathname} collapsed={collapsed} />
           )}
         </nav>
 
@@ -276,7 +256,7 @@ export function RoleShell({
               <button
                 type="button"
                 onClick={logout}
-                title="退出登录"
+                title={t('shell.logoutFull', '退出登录')}
                 className="w-10 h-10 rounded-xl bg-white border-2 border-orange-200 text-lg hover:bg-rose-50 transition"
               >
                 👋
@@ -297,7 +277,7 @@ export function RoleShell({
                 onClick={logout}
                 className="mt-3 w-full text-xs font-bold py-1.5 rounded-xl bg-white border-2 border-orange-200 text-ink-soft hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 transition"
               >
-                👋 退出登录
+                👋 {t('shell.logoutFull', '退出登录')}
               </button>
             </div>
           )}
@@ -309,10 +289,10 @@ export function RoleShell({
           <div className="flex items-center gap-2">
             <span className="text-xl">🌈</span>
             <span className="font-display font-extrabold text-rainbow">AI Camp</span>
-            {navLocked && <span className="text-[10px] font-bold bg-violet-100 text-violet-700 rounded-full px-2 py-0.5">🔒 上课中</span>}
+            {navLocked && <span className="text-[10px] font-bold bg-violet-100 text-violet-700 rounded-full px-2 py-0.5">🔒 {tx('上课中')}</span>}
           </div>
           <button onClick={logout} className="kid-button-sm bg-white border-2 border-orange-200 text-ink-soft hover:bg-rose-50 hover:text-rose-600">
-            👋 退出
+            👋 {t('shell.logout', '退出')}
           </button>
         </header>
 
@@ -322,7 +302,7 @@ export function RoleShell({
           (autoCollapseSidebar || navLocked) && 'hidden',
         )}>
           <div className="flex items-center gap-1.5 min-w-max">
-            {navItems.map((item, i) => {
+            {flattenNavItems(navItems).map((item, i) => {
               const active = isNavActive(pathname, item);
               const color = item.color ?? defaultColorFor(i);
               return (
@@ -358,4 +338,77 @@ function defaultColorFor(i: number): NonNullable<NavItem['color']> {
 function isNavActive(pathname: string, item: NavItem): boolean {
   if (pathname === item.href || pathname.startsWith(item.href + '/')) return true;
   return (item.matchPrefixes ?? []).some((p) => pathname === p || pathname.startsWith(p + '/'));
+}
+
+function isNavBranchActive(pathname: string, item: NavItem): boolean {
+  if (isNavActive(pathname, item)) return true;
+  return (item.children ?? []).some((child) => isNavBranchActive(pathname, child));
+}
+
+function flattenNavItems(items: NavItem[]): NavItem[] {
+  const out: NavItem[] = [];
+  function walk(list: NavItem[]) {
+    for (const item of list) {
+      out.push(item);
+      if (item.children?.length) walk(item.children);
+    }
+  }
+  walk(items);
+  return out;
+}
+
+function SidebarNavLinks({
+  items,
+  pathname,
+  collapsed,
+  depth = 0,
+}: {
+  items: NavItem[];
+  pathname: string;
+  collapsed: boolean;
+  depth?: number;
+}) {
+  return (
+    <>
+      {items.map((item, i) => {
+        const branchActive = isNavBranchActive(pathname, item);
+        const active = isNavActive(pathname, item);
+        const color = item.color ?? defaultColorFor(i + depth);
+        const hasChildren = Boolean(item.children?.length) && !collapsed;
+
+        return (
+          <div key={`${item.href}-${depth}`} className={cn(depth > 0 && !collapsed && 'ml-2 border-l-2 border-orange-100 pl-2')}>
+            <Link
+              href={item.href}
+              title={item.label}
+              className={cn(
+                'flex items-center rounded-2xl font-bold transition-all duration-150',
+                collapsed ? 'justify-center px-2 py-3.5' : cn('gap-3 px-4 py-3 text-[15px]', depth > 0 && 'py-2.5 text-sm'),
+                active
+                  ? `bg-gradient-to-r ${ACTIVE_GRADIENT[color]} text-white shadow-pop-sm ${collapsed ? '' : '-translate-y-0.5 animate-pop'}`
+                  : branchActive && !active
+                    ? `text-brand-dark bg-orange-50/80 ${collapsed ? '' : ''}`
+                    : `text-ink-soft ${HOVER_BG[color]} ${collapsed ? '' : 'hover:-translate-y-0.5'}`,
+              )}
+            >
+              <span className={cn('text-xl leading-none', active && !collapsed && 'animate-bounceSoft', depth > 0 && 'text-base')}>
+                {item.emoji}
+              </span>
+              {!collapsed && (
+                <>
+                  <span className="truncate">{item.label}</span>
+                  {active && <span className="ml-auto text-white/90 text-xs">›</span>}
+                </>
+              )}
+            </Link>
+            {hasChildren && (
+              <div className="mt-1 space-y-1">
+                <SidebarNavLinks items={item.children!} pathname={pathname} collapsed={collapsed} depth={depth + 1} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
 }

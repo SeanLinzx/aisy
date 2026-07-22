@@ -19,6 +19,12 @@ class AddVersionDto {
   @IsOptional() @IsString() js?: string;
   @IsOptional() @IsString() prompt?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() parentVersionId?: string;
+}
+
+class PatchVersionDto {
+  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() prompt?: string;
 }
 
 @ApiTags('web-projects')
@@ -45,6 +51,16 @@ export class WebProjectsController {
   @Post(':id/versions')
   addVersion(@Param('id') id: string, @Body() dto: AddVersionDto, @CurrentUser() me: AuthUser) {
     return this.projects.addVersion(id, me.id, me.role, dto);
+  }
+
+  @Patch(':id/versions/:versionId')
+  patchVersion(
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Body() dto: PatchVersionDto,
+    @CurrentUser() me: AuthUser,
+  ) {
+    return this.projects.patchVersion(id, versionId, me.id, me.role, dto);
   }
 
   @Patch(':id')

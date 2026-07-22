@@ -3,7 +3,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AssetsService } from '../assets/assets.service';
 import { stringifyJson } from '../../common/utils/json';
 import { persistAudioUrl } from '../../common/utils/image-store';
-import { createMusicClient } from '../ai/providers/volcengine-music.client';
+import { parseJson } from '../../common/utils/json';
+import { createMusicClient } from '../ai/providers/music-client.factory';
+import { MusicGenerateInput } from '../ai/providers/music-client.types';
 
 @Injectable()
 export class MusicTaskPoller implements OnModuleInit, OnModuleDestroy {
@@ -44,7 +46,7 @@ export class MusicTaskPoller implements OnModuleInit, OnModuleDestroy {
     if (this.timers.has(jobId)) return;
 
     let attempt = 0;
-    const maxAttempts = 90;
+    const maxAttempts = 120;
 
     const scheduleNext = (delayMs: number) => {
       const tid = setTimeout(() => void tick(), delayMs);
@@ -60,10 +62,15 @@ export class MusicTaskPoller implements OnModuleInit, OnModuleDestroy {
         if (dbJob.status === 'succeeded' || dbJob.status === 'failed') return;
         if (!dbJob.externalTaskId) return;
 
-        const result = await this.client.pollSongTask(dbJob.externalTaskId);
+        const jobInput = dbJob.input ? parseJson<MusicGenerateInput | null>(dbJob.input, null) : null;
+        const result = await this.client.pollSongTask(dbJob.externalTaskId, jobInput ?? undefined);
 
         if (result.status === 'succeeded') {
-          const audioUrl = result.audioUrl ? await persistAudioUrl(result.audioUrl) : undefined;
+          const audioUrl = result.audioUrl
+            ? result.audioUrl.startsWith('http') && !result.audioUrl.includes('/uploads/')
+              ? await persistAudioUrl(result.audioUrl)
+              : result.audioUrl
+            : undefined;
           if (!audioUrl) {
             await this.prisma.aiGenerationJob.update({
               where: { id: dbJob.id },
@@ -91,9 +98,14 @@ export class MusicTaskPoller implements OnModuleInit, OnModuleDestroy {
             url: audioUrl,
             jobId: dbJob.id,
             meta: {
-              provider: 'volcengine-music',
+              provider: dbJob.providerName || this.client.providerName,
               taskId: dbJob.externalTaskId,
               sourceUrl: result.audioUrl,
+              genre: jobInput?.genre,
+              mood: jobInput?.mood,
+              gender: jobInput?.gender,
+              timbre: jobInput?.timbre,
+              duration: jobInput?.duration,
             },
           });
           return;

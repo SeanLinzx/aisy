@@ -133,6 +133,118 @@ export class HomepagesService {
     return this.updateMine(userId, { featuredWebProjectId: projectId });
   }
 
+  private mapStudentHomepageLink(s: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatarUrl?: string | null;
+    homepage?: {
+      slug: string;
+      title: string;
+      intro?: string | null;
+      coverUrl?: string | null;
+      published: boolean;
+      featuredWebProject?: { title: string; slug: string | null } | null;
+    } | null;
+  }) {
+    const slug = s.homepage?.slug;
+    return {
+      id: s.id,
+      username: s.username,
+      displayName: s.displayName,
+      avatarUrl: s.avatarUrl ?? null,
+      homepageSlug: slug ?? null,
+      homepageTitle: s.homepage?.title ?? null,
+      intro: s.homepage?.intro ?? null,
+      coverUrl: s.homepage?.coverUrl ?? null,
+      published: s.homepage?.published ?? false,
+      featuredWebProject: s.homepage?.featuredWebProject ?? null,
+      courseHomeUrl: slug ? courseHomeUrl(slug) : null,
+      growthUrl: slug ? growthUrl(slug) : null,
+    };
+  }
+
+  private studentHomepageSelect = {
+    id: true,
+    username: true,
+    displayName: true,
+    avatarUrl: true,
+    homepage: {
+      select: {
+        slug: true,
+        title: true,
+        intro: true,
+        coverUrl: true,
+        published: true,
+        featuredWebProject: { select: { title: true, slug: true } },
+      },
+    },
+  } as const;
+
+  /** 作品广场：同班同学的公开主页链接 */
+  async listClassPlaza(userId: string, role: string) {
+    if (role === 'student') {
+      const memberships = await this.prisma.classMember.findMany({
+        where: { userId, class: { deletedAt: null } },
+        include: { class: { select: { id: true, name: true } } },
+        orderBy: { class: { name: 'asc' } },
+      });
+
+      const classes = await Promise.all(
+        memberships.map(async (m) => {
+          const students = await this.prisma.user.findMany({
+            where: {
+              role: 'student',
+              id: { not: userId },
+              classMemberships: { some: { classId: m.classId } },
+              homepage: { is: { published: true } },
+            },
+            orderBy: { displayName: 'asc' },
+            select: this.studentHomepageSelect,
+          });
+          return {
+            classId: m.classId,
+            className: m.class.name,
+            students: students.map((s) => this.mapStudentHomepageLink(s)),
+          };
+        }),
+      );
+
+      return { viewerRole: role, classes };
+    }
+
+    if (role === 'teacher') {
+      const owned = await this.prisma.class.findMany({
+        where: { ownerId: userId, deletedAt: null },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      });
+
+      const classes = await Promise.all(
+        owned.map(async (c) => {
+          const students = await this.prisma.user.findMany({
+            where: {
+              role: 'student',
+              classMemberships: { some: { classId: c.id } },
+              homepage: { is: { published: true } },
+            },
+            orderBy: { displayName: 'asc' },
+            select: this.studentHomepageSelect,
+          });
+          return {
+            classId: c.id,
+            className: c.name,
+            students: students.map((s) => this.mapStudentHomepageLink(s)),
+          };
+        }),
+      );
+
+      return { viewerRole: role, classes };
+    }
+
+    return { viewerRole: role, classes: [] as Array<{ classId: string; className: string; students: ReturnType<HomepagesService['mapStudentHomepageLink']>[] }> };
+  }
+
   /** 教师：列出学生及其公开链接 */
   async listStudentLinks(params: { classId?: string }) {
     const where: { role: string; classMemberships?: { some: { classId: string } } } = { role: 'student' };
@@ -158,19 +270,6 @@ export class HomepagesService {
       },
     });
 
-    return students.map((s) => {
-      const slug = s.homepage?.slug;
-      return {
-        id: s.id,
-        username: s.username,
-        displayName: s.displayName,
-        homepageSlug: slug ?? null,
-        homepageTitle: s.homepage?.title ?? null,
-        published: s.homepage?.published ?? false,
-        featuredWebProject: s.homepage?.featuredWebProject ?? null,
-        courseHomeUrl: slug ? courseHomeUrl(slug) : null,
-        growthUrl: slug ? growthUrl(slug) : null,
-      };
-    });
+    return students.map((s) => this.mapStudentHomepageLink(s));
   }
 }

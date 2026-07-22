@@ -1,3 +1,5 @@
+import { injectAiCampRuntime, ensureDeclarativeAiBridge } from '@ai-camp/types';
+
 /** 将 AI 返回的 html / css / js 合并为单文件 HTML（与预览、发布端逻辑一致） */
 export function mergeWebHtml(data: { html?: string; css?: string; js?: string }): string {
   let out = (data.html || '').trim();
@@ -22,7 +24,8 @@ export function mergeWebHtml(data: { html?: string; css?: string; js?: string })
     out = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8" /></head><body>${out}</body></html>`;
   }
 
-  return out;
+  out = injectAiCampRuntime(out);
+  return ensureDeclarativeAiBridge(out, { js });
 }
 
 /** 从单文件 HTML 中拆出内联 style / script，便于写入 web-projects 的 css、js 字段（发布页会重新注入脚本）。 */
@@ -33,6 +36,10 @@ export function splitInlineWebParts(html: string): { html: string; css: string; 
 
   out = out.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (match, attrs: string, body: string) => {
     if (/\bsrc\s*=/.test(attrs)) return match;
+    if (/\bdata-ai-camp-runtime\b/.test(attrs)) return match;
+    if (/\bdata-ai-camp-upload\b/.test(attrs)) return match;
+    if (/\bdata-pm-ai-decl-bridge\b/.test(attrs)) return match;
+    if (/\bdata-pm-ai-bridge\b/.test(attrs)) return match;
     const trimmed = body.trim();
     if (trimmed) scripts.push(trimmed);
     return '';

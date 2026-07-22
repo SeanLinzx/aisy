@@ -1,13 +1,21 @@
 'use client';
 
+import { useLanguage } from '@/contexts/language-context';
+
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { persistWebAsset } from '@/lib/persist-web-asset';
+import { AI_GENERATE_WEB_PROGRESS_ESTIMATE, AI_GENERATE_WEB_PROGRESS_MS, AI_GENERATE_WEB_TIMEOUT_MS } from '@/lib/ai-generate-timeouts';
+import { persistWebAsset, webAssetHref } from '@/lib/persist-web-asset';
 import { splitInlineWebParts, mergeWebHtml } from '@/lib/merge-web-html';
 import { AiWarning } from '@/components/ai-warning';
 import { HtmlPreview, type PickedElement } from '@/components/course/html-preview';
 import { AiProgress } from '@/components/course/ai-progress';
+import { StackedInteractionsPanel } from '@/components/web/stacked-interactions-panel';
+import { PublishedPageLink } from '@/components/published-page-link';
+import { WebVersionTree } from '@/components/course/web-version-tree';
+import { loadWebProjectHead } from '@/lib/web-project-head';
+import { versionHtml, type WebProjectVersionRow } from '@/lib/web-project-versions';
 import { renderFilledSentence, type FillBlankSpec } from '@/components/course/fill-blank-sentence';
 import {
   INTERACTION_TEMPLATES,
@@ -65,7 +73,26 @@ function layerFromValues(values: Record<string, string>): InteractionLayerSpec |
   return { target, trigger, result };
 }
 
+function layersFromVersionNotes(notes?: string | null): InteractionLayerSpec[] | null {
+  if (!notes?.trim()) return null;
+  try {
+    const data = JSON.parse(notes) as { layers?: InteractionLayerSpec[] };
+    return Array.isArray(data.layers) ? data.layers : null;
+  } catch {
+    return null;
+  }
+}
+
+function encodeVersionNotes(layers: InteractionLayerSpec[], summary: string): string {
+  return JSON.stringify({
+    kind: 'mini-interaction',
+    summary: summary.slice(0, 80),
+    layers,
+  });
+}
+
 export function MiniInteractionGame() {
+  const { tx } = useLanguage();
   const [templateId, setTemplateId] = useState(INTERACTION_TEMPLATES[0].id);
   const [form, setForm] = useState<Record<string, string>>(() => ({
     target: INTERACTION_TEMPLATES[0].defaults.target,
@@ -84,6 +111,8 @@ export function MiniInteractionGame() {
   const [pickMode, setPickMode] = useState(false);
   const [addingTarget, setAddingTarget] = useState(false);
   const [targetDraft, setTargetDraft] = useState('');
+  const [headVersionId, setHeadVersionId] = useState<string | null>(null);
+  const [versions, setVersions] = useState<WebProjectVersionRow[]>([]);
 
   const template = INTERACTION_TEMPLATES.find((t) => t.id === templateId) ?? INTERACTION_TEMPLATES[0];
   const targetOptions = useMemo(
@@ -120,8 +149,15 @@ export function MiniInteractionGame() {
         if (restoredHtml) setHtml(restoredHtml);
         setProjectId(projectId);
         setAssetId(typeof asset.id === 'string' ? asset.id : null);
-        if (asset.url) setPageUrl(asset.url);
+        if (asset.url) setPageUrl(webAssetHref(asset) || asset.url);
         setSaved(!!restoredHtml);
+        if (projectId) {
+          void loadWebProjectHead(projectId).then((head) => {
+            if (!head) return;
+            setVersions(head.versions);
+            setHeadVersionId(head.headVersionId);
+          });
+        }
       })
       .catch(() => {});
   }, []);
@@ -220,6 +256,8 @@ export function MiniInteractionGame() {
       description: '课程 · 小交互',
       projectId,
       assetId,
+      parentVersionId: headVersionId,
+      versionNotes: encodeVersionNotes(nextLayers, summary),
       meta: {
         kind: 'interaction',
         templateId,
@@ -230,7 +268,25 @@ export function MiniInteractionGame() {
     setProjectId(persisted.projectId);
     setAssetId(persisted.assetId);
     setPageUrl(persisted.url);
+    if (persisted.versionId) {
+      setHeadVersionId(persisted.versionId);
+      const head = await loadWebProjectHead(persisted.projectId);
+      if (head) {
+        setVersions(head.versions);
+        setHeadVersionId(head.headVersionId);
+      }
+    }
     setSaved(true);
+  }
+
+  function selectVersion(id: string) {
+    const v = versions.find((x) => x.id === id);
+    if (!v) return;
+    setHeadVersionId(id);
+    setHtml(versionHtml(v));
+    const restoredLayers = layersFromVersionNotes(v.notes);
+    if (restoredLayers) setLayers(restoredLayers);
+    setError(null);
   }
 
   async function addInteraction() {
@@ -247,7 +303,7 @@ export function MiniInteractionGame() {
         newLayer: layer,
         existingLayers: layers,
       });
-      const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: 180_000 });
+      const r = await api.post('/ai-generate/web', { prompt, interactive: true }, { timeout: AI_GENERATE_WEB_TIMEOUT_MS });
       let out = r.data.html || '';
       if (r.data.css) out = out.replace(/<\/head>/i, `<style>${r.data.css}</style></head>`);
       if (r.data.js) out = out.replace(/<\/body>/i, `<script>${r.data.js}<\/script></body>`);
@@ -290,7 +346,7 @@ export function MiniInteractionGame() {
     <div className="space-y-4">
       <div className="kid-card-purple">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          👆 先选一张静态页面，分三行填好：<b>点哪里</b> → <b>什么操作</b> → <b>会出现什么效果</b>。第三行可以自由写想法，也可以点快捷选项。可以<b>一条一条叠加</b>——例如先让小猫跳起来，再让小草摇摆！
+          👆 先选一张静态页面，分三行填好：<b>{tx('点哪里')}</b> → <b>{tx('什么操作')}</b> → <b>{tx('会出现什么效果')}</b>{tx('。第三行可以自由写想法，也可以点快捷选项。可以')}<b>{tx('一条一条叠加')}</b>——例如先让小猫跳起来，再让小草摇摆！
         </p>
       </div>
 
@@ -347,7 +403,7 @@ export function MiniInteractionGame() {
 
           {/* 第一行：选择目标 */}
           <div className="rounded-xl bg-orange-50/80 border-2 border-orange-100 p-3 space-y-2">
-            <div className="text-xs font-bold text-orange-800">① 点哪里</div>
+            <div className="text-xs font-bold text-orange-800">{tx('① 点哪里')}</div>
             {addingTarget ? (
               <div className="flex flex-wrap items-center gap-2">
                 <input
@@ -363,7 +419,7 @@ export function MiniInteractionGame() {
                       setTargetDraft('');
                     }
                   }}
-                  placeholder="写下你想点的区域"
+                  placeholder={tx('写下你想点的区域')}
                   className="kid-input flex-1 min-w-[160px] !py-2 text-sm"
                 />
                 <button type="button" onClick={confirmCustomTarget} className="kid-button-sm bg-brand text-white border-brand">
@@ -393,13 +449,13 @@ export function MiniInteractionGame() {
                   }
                 }}
               >
-                <option value="">选择页面上的区域…</option>
+                <option value="">{tx('选择页面上的区域…')}</option>
                 {targetOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
                   </option>
                 ))}
-                <option value={ADD_CUSTOM_TARGET}>➕ 自己写一个…</option>
+                <option value={ADD_CUSTOM_TARGET}>{tx('➕ 自己写一个…')}</option>
               </select>
             )}
             <div className="flex flex-wrap gap-1.5">
@@ -409,18 +465,18 @@ export function MiniInteractionGame() {
                 </OptionChip>
               ))}
             </div>
-            <p className="text-[11px] text-ink-soft">也可以点左边「🎯 点选目标」，直接在预览里选区域</p>
+            <p className="text-[11px] text-ink-soft">{tx('也可以点左边「🎯 点选目标」，直接在预览里选区域')}</p>
           </div>
 
           {/* 第二行：选择动作 */}
           <div className="rounded-xl bg-sky-50/80 border-2 border-sky-100 p-3 space-y-2">
-            <div className="text-xs font-bold text-sky-800">② 什么操作</div>
+            <div className="text-xs font-bold text-sky-800">{tx('② 什么操作')}</div>
             <select
               className="kid-input w-full !py-2 text-sm font-bold"
               value={form.trigger || ''}
               onChange={(e) => setField('trigger', e.target.value)}
             >
-              <option value="">选择鼠标操作…</option>
+              <option value="">{tx('选择鼠标操作…')}</option>
               {TRIGGER_OPTIONS.map((opt) => (
                 <option key={opt} value={opt}>
                   {opt}
@@ -438,12 +494,12 @@ export function MiniInteractionGame() {
 
           {/* 第三行：说明规则（自由输入） */}
           <div className="rounded-xl bg-violet-50/80 border-2 border-violet-100 p-3 space-y-2">
-            <div className="text-xs font-bold text-violet-800">③ 会出现什么效果</div>
+            <div className="text-xs font-bold text-violet-800">{tx('③ 会出现什么效果')}</div>
             <textarea
               className="kid-textarea !min-h-[88px] w-full text-sm leading-relaxed"
               value={form.result || ''}
               onChange={(e) => setField('result', e.target.value)}
-              placeholder="在这里自由写下你想要的效果，比如：小猫会跳起来并发出喵喵声，旁边弹出爱心…"
+              placeholder={tx('在这里自由写下你想要的效果，比如：小猫会跳起来并发出喵喵声，旁边弹出爱心…')}
             />
             <div className="flex flex-wrap gap-1.5">
               {template.resultOptions.map((opt) => (
@@ -455,20 +511,9 @@ export function MiniInteractionGame() {
           </div>
 
           <div className="rounded-xl bg-violet-100/60 border-2 border-violet-200 px-3 py-3">
-            <div className="text-xs font-bold text-violet-700 mb-1.5">🧩 这条规则</div>
+            <div className="text-xs font-bold text-violet-700 mb-1.5">{tx('🧩 这条规则')}</div>
             <p className="text-sm text-violet-900 leading-relaxed break-words whitespace-normal">{currentRule}</p>
           </div>
-
-          {layers.length > 0 && (
-            <div className="rounded-xl bg-emerald-50 border-2 border-emerald-100 px-3 py-2 space-y-1.5">
-              <div className="text-xs font-bold text-emerald-800">✅ 已叠加的交互（{layers.length} 条）</div>
-              {layers.map((l, i) => (
-                <div key={`${l.target}-${i}`} className="text-xs text-emerald-900 leading-relaxed break-words whitespace-normal">
-                  {i + 1}. {interactionRuleSentence(l)}
-                </div>
-              ))}
-            </div>
-          )}
 
           <button type="button" onClick={addInteraction} disabled={busy} className="kid-button-primary w-full">
             {busy
@@ -487,21 +532,34 @@ export function MiniInteractionGame() {
           {busy && (
             <AiProgress
               label={layers.length > 0 ? 'AI 正在叠加新交互，请稍等…' : 'AI 正在把交互加到页面上…'}
-              estimate="预计约 1 分钟"
-              durationMs={60_000}
+              estimate={AI_GENERATE_WEB_PROGRESS_ESTIMATE}
+              durationMs={AI_GENERATE_WEB_PROGRESS_MS}
             />
           )}
           {error && (
-            <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
+        <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{tx(error)}</div>
+          )}
+
+          <StackedInteractionsPanel layers={layers} compact />
+
+          {versions.length > 0 && (
+            <WebVersionTree
+              embedded
+              versions={versions}
+              currentId={headVersionId}
+              onSelect={selectVersion}
+              projectId={projectId}
+              onVersionsChange={setVersions}
+            />
           )}
         </div>
       </div>
 
       {html && saved && pageUrl && (
         <div className="kid-card-mint flex flex-wrap gap-3 text-sm">
-          <Link href={pageUrl} target="_blank" className="text-brand font-bold">
-            🌐 打开网页
-          </Link>
+          <PublishedPageLink href={pageUrl} className="text-brand font-bold">
+            🌐 {tx('打开网页')}
+          </PublishedPageLink>
           <Link href="/student/projects" className="text-emerald-600 font-bold">
             💻 我的网页
           </Link>
@@ -511,7 +569,7 @@ export function MiniInteractionGame() {
         </div>
       )}
 
-      {html && <AiWarning extra="可以继续叠加更多交互；若某条不对，可「清空重来」或改改填空再添加。" />}
+      {html && <AiWarning extra={tx('可以继续叠加更多交互；若某条不对，可「清空重来」或改改填空再添加。')} />}
     </div>
   );
 }

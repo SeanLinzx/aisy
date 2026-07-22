@@ -22,7 +22,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       await this.$queryRawUnsafe('PRAGMA journal_mode = WAL;');
       await this.$queryRawUnsafe('PRAGMA busy_timeout = 5000;');
       await this.$queryRawUnsafe('PRAGMA synchronous = NORMAL;');
-      this.logger.log('SQLite tuned: WAL + busy_timeout=5000ms');
+      await this.$queryRawUnsafe('PRAGMA cache_size = -64000;');
+      this.logger.log('SQLite tuned: WAL + busy_timeout=5000ms + cache=64MB');
     } catch (e: any) {
       this.logger.warn(`SQLite tuning skipped: ${e?.message}`);
     }

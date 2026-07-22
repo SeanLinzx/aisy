@@ -21,4 +21,10 @@ if command -v prisma >/dev/null 2>&1; then
     || echo "[entrypoint] schema push 失败（可能包含破坏性变更），继续以现有结构启动"
 fi
 
+if [ -f /app/scripts/upsert-sensitive-words.js ]; then
+  echo "[entrypoint] 同步基础敏感词"
+  node /app/scripts/upsert-sensitive-words.js \
+    || echo "[entrypoint] 敏感词同步失败，继续启动"
+fi
+
 exec node dist/src/main.js

@@ -20,6 +20,20 @@ export function sanitizeCopyrightTerms(text: string): string {
   return out;
 }
 
+function isTimeoutLikeMessage(lower: string, code?: string): boolean {
+  if (code && ['UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'ETIMEDOUT', 'ECONNRESET', 'UND_ERR_SOCKET'].includes(code)) {
+    return true;
+  }
+  return (
+    lower.includes('headers timeout') ||
+    lower.includes('header timeout') ||
+    lower.includes('body timeout') ||
+    lower.includes('connect timeout') ||
+    lower.includes('econnreset') ||
+    lower.includes('etimedout')
+  );
+}
+
 /** 将 Ark 英文错误转为儿童友好的中文说明 */
 export function humanizeArkVideoError(message?: string | null): string | undefined {
   if (!message) return undefined;
@@ -27,8 +41,30 @@ export function humanizeArkVideoError(message?: string | null): string | undefin
   if (lower.includes('copyright')) {
     return '生成被拒绝：描述或参考图可能涉及受版权保护的角色/作品。请改用通用描述（例如「奶黄色小恐龙变成公主」，不要写具体角色名），再试一次。';
   }
+  if (lower.includes('duration') && (lower.includes('not valid') || lower.includes('invalid'))) {
+    return '视频时长设置不正确（Seedance 模型仅支持 4–15 秒）。请选 5、8 或 11 秒后重试。';
+  }
   if (lower.includes('risk') || lower.includes('sensitive') || lower.includes('moderation')) {
     return '生成被拒绝：内容可能不符合平台安全规范，请修改描述后重试。';
   }
+  if (isTimeoutLikeMessage(lower)) {
+    return '视频服务响应超时，任务可能仍在后台处理。请稍等片刻查看下方进度，或稍后重试。';
+  }
   return message;
+}
+
+/**
+ * 将 AI 文本/网页生成的底层网络错误（undici HeadersTimeoutError 等）转为儿童友好的中文说明。
+ * 网页/工作流类生成常带整页历史代码作为上下文，模型生成耗时较长，容易撞到网络层超时。
+ */
+export function humanizeArkGenerationError(err: unknown): Error {
+  const e = err as { message?: string; code?: string } | undefined;
+  const message = e?.message || String(err);
+  const lower = message.toLowerCase();
+  if (isTimeoutLikeMessage(lower, e?.code)) {
+    return new Error(
+      '生成超时：这次修改的内容较多，AI 还没来得及在规定时间内生成完。请稍等几秒后重新点击「应用修改」，或先精简一下修改说明再试。',
+    );
+  }
+  return err instanceof Error ? err : new Error(message);
 }

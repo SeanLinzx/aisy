@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import { useLanguage } from '@/contexts/language-context';
 
 export interface WorkCardField {
   key: string;
@@ -27,6 +28,7 @@ export function WorkCard({
   version?: string;
   titlePrefix?: string;
 }) {
+  const { tx } = useLanguage();
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -41,17 +43,17 @@ export function WorkCard({
     setSaving(true);
     setError(null);
     try {
-      const content = fields.map((f) => `【${f.label}】\n${values[f.key]?.trim() || '（未填写）'}`).join('\n\n');
+      const content = fields.map((f) => `【${tx(f.label)}】\n${values[f.key]?.trim() || tx('（未填写）')}`).join('\n\n');
       const r = await api.post('/assets', {
         type: 'text',
-        title: `${titlePrefix} ${version}`,
-        summary: '课程作品卡',
+        title: `${tx(titlePrefix)} ${version}`,
+        summary: tx('课程作品卡'),
         content,
         meta: { kind: 'work-card', version, fields: values },
       });
       setSavedId(r.data?.id || 'ok');
     } catch (e: any) {
-      setError(e?.message || '保存失败');
+      setError(e?.message || tx('保存失败'));
     } finally {
       setSaving(false);
     }
@@ -62,22 +64,22 @@ export function WorkCard({
       {fields.map((f) => (
         <div key={f.key} className="kid-card !p-4 space-y-2">
           <label className="text-sm font-bold flex items-center gap-1.5">
-            <span className="text-lg">{f.emoji}</span> {f.label}
+            <span className="text-lg">{f.emoji}</span> {tx(f.label)}
           </label>
           <textarea
             className="kid-textarea !min-h-[80px]"
             value={values[f.key] || ''}
             onChange={(e) => setField(f.key, e.target.value)}
-            placeholder={f.placeholder}
+            placeholder={tx(f.placeholder)}
           />
         </div>
       ))}
 
       <div className="flex items-center gap-3">
         <button onClick={save} disabled={saving} className="kid-button-primary">
-          {saving ? '保存中…' : '💾 保存作品卡'}
+          {saving ? tx('保存中…') : tx('💾 保存作品卡')}
         </button>
-        {savedId && <span className="text-sm font-bold text-emerald-600">✅ 已保存到「我的素材库」！</span>}
+        {savedId && <span className="text-sm font-bold text-emerald-600">{tx('✅ 已保存到「我的素材库」！')}</span>}
         {error && <span className="text-sm text-rose-600">{error}</span>}
       </div>
     </div>

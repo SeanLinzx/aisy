@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { ProviderRegistry } from '../ai/provider-registry';
 import { AssetsService } from '../assets/assets.service';
 import { parseJson, stringifyJson } from '../../common/utils/json';
-import { persistVideoUrl } from '../../common/utils/image-store';
+import { persistVideoUrl, extractVideoThumbnail } from '../../common/utils/image-store';
 
 type VideoJobRow = {
   id: string;
@@ -72,6 +72,15 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
     this.timers.clear();
   }
 
+  /** 停止指定任务的轮询（用户取消或任务已终态时）。 */
+  cancel(jobId: string): void {
+    const tid = this.timers.get(jobId);
+    if (tid) {
+      clearTimeout(tid);
+      this.timers.delete(jobId);
+    }
+  }
+
   /** 幂等：每个视频任务最多对应一条素材库记录 */
   private async ensureVideoAsset(
     dbJob: VideoJobRow,
@@ -90,11 +99,13 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
       || 'AI 视频';
 
     try {
+      const thumbnailUrl = (await extractVideoThumbnail(videoUrl)) ?? undefined;
       return await this.assets.create({
         ownerId: dbJob.userId,
         type: 'video',
         title,
         url: videoUrl,
+        thumbnailUrl,
         jobId: dbJob.id,
         meta: {
           provider: dbJob.providerName,
@@ -102,6 +113,10 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
           taskId: dbJob.externalTaskId,
           sourceUrl: sourceUrl ?? videoUrl,
           originalPrompt: inputMeta.originalPrompt,
+          prompt:
+            (typeof inputMeta.originalPrompt === 'string' && inputMeta.originalPrompt.trim())
+            || dbJob.prompt
+            || undefined,
           mode: inputMeta.mode ?? 'guided',
           autoSaved: true,
         },
@@ -112,12 +127,49 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Starts background polling chain (once per AiGenerationJob). */
-  schedule(jobId: string): void {
+  /** 后台落盘 CDN 视频并更新 job 输出 + 素材库，避免 poll tick 阻塞 */
+  private async backgroundPersistVideo(dbJob: VideoJobRow, sourceUrl: string) {
+    const videoUrl = await persistVideoUrl(sourceUrl);
+    if (!videoUrl) {
+      await this.prisma.aiGenerationJob.update({
+        where: { id: dbJob.id },
+        data: {
+          status: 'failed',
+          finishedAt: new Date(),
+          error: '视频任务已完成，但未返回可播放的视频地址',
+        },
+      });
+      return;
+    }
+    await this.prisma.aiGenerationJob.update({
+      where: { id: dbJob.id },
+      data: {
+        output: stringifyJson({
+          videoUrl,
+          sourceUrls: [sourceUrl],
+          persistPending: false,
+        }),
+      },
+    });
+    await this.ensureVideoAsset(dbJob, videoUrl, sourceUrl);
+  }
+
+  /**
+   * Starts background polling chain (once per AiGenerationJob).
+   * `onSettled` (若提供) 会在任务到达终态（成功/失败/超时失败）时被调用一次，
+   * 用于释放本地并发闸门名额（见 concurrency-gate.ts），让排队中的下一个任务开始。
+   */
+  schedule(jobId: string, onSettled?: () => void): void {
     if (this.timers.has(jobId)) return;
 
     let attempt = 0;
-    const maxAttempts = 90; // ~6 min @ 4s spacing
+    const maxAttempts = 225; // ~15 min @ 4s spacing（多段分镜 Classroom 场景下单段可能排队+生成较久）
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      onSettled?.();
+    };
 
     const scheduleNext = (delayMs: number) => {
       const tid = setTimeout(() => void tick(), delayMs);
@@ -132,11 +184,16 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
         const dbJob = await this.prisma.aiGenerationJob.findUnique({ where: { id: jobId } });
         if (!dbJob) {
           this.logger.warn(`Video poll: job ${jobId} vanished`);
+          settle();
           return;
         }
-        if (dbJob.status === 'succeeded' || dbJob.status === 'failed') return;
+        if (dbJob.status === 'succeeded' || dbJob.status === 'failed' || dbJob.status === 'cancelled') {
+          settle();
+          return;
+        }
         if (!dbJob.externalTaskId) {
           this.logger.warn(`Video poll: job ${jobId} missing externalTaskId`);
+          settle();
           return;
         }
 
@@ -144,8 +201,8 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
         const result = await provider.pollVideoTask(dbJob.externalTaskId);
 
         if (result.status === 'succeeded') {
-          const videoUrl = result.videoUrl ? await persistVideoUrl(result.videoUrl) : undefined;
-          if (!videoUrl) {
+          const rawVideoUrl = result.videoUrl;
+          if (!rawVideoUrl) {
             await this.prisma.aiGenerationJob.update({
               where: { id: dbJob.id },
               data: {
@@ -155,6 +212,7 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
                 output: stringifyJson({ raw: result.raw ?? null }),
               },
             });
+            settle();
             return;
           }
           await this.prisma.aiGenerationJob.update({
@@ -163,13 +221,19 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
               status: 'succeeded',
               finishedAt: new Date(),
               output: stringifyJson({
-                videoUrl,
-                sourceUrls: result.videoUrl ? [result.videoUrl] : undefined,
+                videoUrl: rawVideoUrl,
+                sourceUrls: rawVideoUrl ? [rawVideoUrl] : undefined,
                 raw: result.raw ?? null,
+                persistPending: Boolean(rawVideoUrl),
               }),
             },
           });
-          await this.ensureVideoAsset(dbJob, videoUrl, result.videoUrl);
+          if (rawVideoUrl) {
+            void this.backgroundPersistVideo(dbJob, rawVideoUrl).catch((e) => {
+              this.logger.warn(`Background video persist for ${dbJob.id}: ${e?.message}`);
+            });
+          }
+          settle();
           return;
         }
 
@@ -182,6 +246,7 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
               error: result.error || 'video task failed',
             },
           });
+          settle();
           return;
         }
 
@@ -199,6 +264,7 @@ export class VideoTaskPoller implements OnModuleInit, OnModuleDestroy {
             error: `video polling timed out after ${maxAttempts} attempts`,
           },
         });
+        settle();
         return;
       }
 

@@ -97,7 +97,7 @@ export class GrowthPublishController {
           where: { ownerId: userId, archived: false },
           orderBy: { createdAt: 'desc' },
           take: 18,
-          select: { title: true, type: true, url: true, createdAt: true },
+          select: { title: true, type: true, url: true, thumbnailUrl: true, createdAt: true },
         }),
         this.prisma.growthRecord.findMany({
           where: { studentId: userId },

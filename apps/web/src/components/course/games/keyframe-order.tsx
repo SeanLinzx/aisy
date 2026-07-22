@@ -1,5 +1,6 @@
 'use client';
 import { useMemo, useState } from 'react';
+import { useLanguage } from '@/contexts/language-context';
 
 interface Frame {
   id: string;
@@ -25,6 +26,7 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 export function KeyframeOrderGame() {
+  const { tx } = useLanguage();
   const [pool] = useState(() => shuffle(FRAMES));
   const [seq, setSeq] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
@@ -43,23 +45,23 @@ export function KeyframeOrderGame() {
     <div className="space-y-4">
       <div className="kid-card-yellow">
         <div className="flex items-center gap-2">
-          <span className="tag-yellow">敬请期待</span>
-          <span className="text-sm font-semibold text-ink-soft">完整版会用真实 AI 视频的关键帧。这里先玩一个简单版练练手！</span>
+          <span className="tag-yellow">{tx('敬请期待')}</span>
+          <span className="text-sm font-semibold text-ink-soft">{tx('完整版会用真实 AI 视频的关键帧。这里先玩一个简单版练练手！')}</span>
         </div>
       </div>
 
       <div className="kid-card">
-        <div className="text-sm font-bold mb-2">🎬 视频播放区（占位）</div>
+        <div className="text-sm font-bold mb-2">{tx('🎬 视频播放区（占位）')}</div>
         <div className="aspect-video rounded-2xl bg-slate-900 flex items-center justify-center text-white/70">
           <div className="text-center">
             <div className="text-5xl mb-2">🎞️</div>
-            <div className="text-sm">这里将播放一段 AI 视频</div>
+            <div className="text-sm">{tx('这里将播放一段 AI 视频')}</div>
           </div>
         </div>
       </div>
 
       <div className="kid-card space-y-3">
-        <div className="text-sm font-bold">🔢 按照故事发生的顺序，依次点击下面的关键帧：</div>
+        <div className="text-sm font-bold">{tx('🔢 按照故事发生的顺序，依次点击下面的关键帧：')}</div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {pool.map((f) => {
             const pos = seq.indexOf(f.id);
@@ -76,21 +78,21 @@ export function KeyframeOrderGame() {
               >
                 {chosen && <span className="absolute top-1 left-1 w-6 h-6 rounded-full bg-sky-500 text-white text-xs font-bold flex items-center justify-center">{pos + 1}</span>}
                 <div className="text-4xl">{f.emoji}</div>
-                <div className="text-xs font-bold mt-1">{f.label}</div>
+                <div className="text-xs font-bold mt-1">{tx(f.label)}</div>
               </button>
             );
           })}
         </div>
         {!submitted ? (
           <button onClick={() => setSubmitted(true)} disabled={seq.length !== FRAMES.length} className="kid-button-primary disabled:opacity-50">
-            ✅ 提交顺序
+            {tx('✅ 提交顺序')}
           </button>
         ) : (
           <div className="space-y-2">
             <div className={`font-extrabold ${correct ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {correct ? '🎉 顺序完全正确！' : '🤔 顺序还不太对，再想想故事是怎么发生的～'}
+              {correct ? tx('🎉 顺序完全正确！') : tx('🤔 顺序还不太对，再想想故事是怎么发生的～')}
             </div>
-            <button onClick={() => { setSeq([]); setSubmitted(false); }} className="kid-button-ghost">🔄 再试一次</button>
+            <button onClick={() => { setSeq([]); setSubmitted(false); }} className="kid-button-ghost">{tx('🔄 再试一次')}</button>
           </div>
         )}
       </div>

@@ -8,7 +8,11 @@ import {
   readUploadFile,
   mimeFromExt,
 } from '../../../common/utils/image-store';
-import { humanizeArkVideoError, sanitizeCopyrightTerms } from '../../../common/utils/prompt-sanitize';
+import {
+  humanizeArkGenerationError,
+  humanizeArkVideoError,
+  sanitizeCopyrightTerms,
+} from '../../../common/utils/prompt-sanitize';
 import {
   AiProviderAdapter,
   BaseGenerateInput,
@@ -33,6 +37,9 @@ export interface VolcengineArkConfig {
   imageModel?: string;
   videoModel?: string;
   multimodalModel?: string;
+  /** AI 小应用（长上下文）网页生成 */
+  webModel?: string;
+  chatCompletionsPath?: string;
 }
 
 /**
@@ -60,6 +67,17 @@ export interface VolcengineArkConfig {
  *   - Anything that fails (e.g. missing model, network error) surfaces as a
  *     `failed` status upstream so the UX can fall back or show a clear message.
  */
+/** Seedance 2.0 Mini — 官方推荐用于 /contents/generations/tasks */
+export const DEFAULT_ARK_VIDEO_MODEL = 'doubao-seedance-2-0-mini-260615';
+
+const LEGACY_ARK_VIDEO_MODEL = 'doubao-seedance-2-0-260128';
+
+export function resolveArkVideoModel(model?: string, configured?: string): string {
+  const fallback = configured || DEFAULT_ARK_VIDEO_MODEL;
+  if (!model || model === LEGACY_ARK_VIDEO_MODEL) return fallback;
+  return model;
+}
+
 export class VolcengineArkProvider implements AiProviderAdapter {
   readonly name = 'volcengine-ark';
   readonly capabilities: ProviderCapabilities = {
@@ -97,10 +115,25 @@ export class VolcengineArkProvider implements AiProviderAdapter {
    * 守护性超时：/responses 为同步生成，长文/网页可达数分钟；
    * 不设超时的话，挂起的上游连接会在多端并发时逐渐耗尽 socket。
    */
-  private static readonly SLOW_TIMEOUTS = { headersTimeout: 240_000, bodyTimeout: 300_000 };
+  /** 网页/工作流类小应用生成常带整页历史代码作为上下文，模型完整生成耗时可达 5-7 分钟 */
+  private static readonly SLOW_TIMEOUTS = { headersTimeout: 420_000, bodyTimeout: 300_000 };
   private static readonly FAST_TIMEOUTS = { headersTimeout: 30_000, bodyTimeout: 60_000 };
 
   private async callResponses(model: string, systemPrompt: string, input: BaseGenerateInput): Promise<any> {
+    const history = input.options?.messages as Array<{ role: 'user' | 'assistant'; content: string }> | undefined;
+    const inputArr: any[] = [
+      { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
+    ];
+
+    if (history?.length) {
+      for (const msg of history) {
+        inputArr.push({
+          role: msg.role,
+          content: [{ type: 'input_text', text: msg.content }],
+        });
+      }
+    }
+
     const contentBlocks: any[] = [];
     if (input.references?.length) {
       for (const ref of input.references) {
@@ -109,22 +142,31 @@ export class VolcengineArkProvider implements AiProviderAdapter {
         }
       }
     }
-    contentBlocks.push({ type: 'input_text', text: input.prompt });
+    if (input.prompt?.trim()) {
+      contentBlocks.push({ type: 'input_text', text: input.prompt });
+    }
+
+    inputArr.push({
+      role: 'user',
+      content: contentBlocks.length ? contentBlocks : [{ type: 'input_text', text: input.prompt || '继续' }],
+    });
 
     const body = {
       model,
-      input: [
-        { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
-        { role: 'user', content: contentBlocks },
-      ],
+      input: inputArr,
     };
 
-    const res = await request(this.url(this.cfg.responsesPath), {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-      ...VolcengineArkProvider.SLOW_TIMEOUTS,
-    });
+    let res: Awaited<ReturnType<typeof request>>;
+    try {
+      res = await request(this.url(this.cfg.responsesPath), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        ...VolcengineArkProvider.SLOW_TIMEOUTS,
+      });
+    } catch (e) {
+      throw humanizeArkGenerationError(e);
+    }
     const text = await res.body.text();
     let parsed: any;
     try {
@@ -136,6 +178,56 @@ export class VolcengineArkProvider implements AiProviderAdapter {
       throw new Error(`Ark /responses failed (${res.statusCode}): ${parsed?.error?.message || parsed?.message || text.slice(0, 200)}`);
     }
     return parsed;
+  }
+
+  /** doubao-seed-evolving 等长上下文模型走 /chat/completions */
+  private async callChatCompletions(model: string, systemPrompt: string, input: BaseGenerateInput): Promise<any> {
+    const history = input.options?.messages as Array<{ role: 'user' | 'assistant'; content: string }> | undefined;
+    const messages: Array<{ role: string; content: string }> = [{ role: 'system', content: systemPrompt }];
+
+    if (history?.length) {
+      for (const msg of history) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    messages.push({ role: 'user', content: input.prompt?.trim() || '继续' });
+
+    const path = this.cfg.chatCompletionsPath || '/chat/completions';
+    const body = { model, messages, max_tokens: 32768 };
+
+    let res: Awaited<ReturnType<typeof request>>;
+    try {
+      res = await request(this.url(path), {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        ...VolcengineArkProvider.SLOW_TIMEOUTS,
+      });
+    } catch (e) {
+      throw humanizeArkGenerationError(e);
+    }
+    const text = await res.body.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error(`Ark /chat/completions returned non-JSON: ${text.slice(0, 200)}`);
+    }
+    if (res.statusCode >= 400) {
+      throw new Error(
+        `Ark /chat/completions failed (${res.statusCode}): ${parsed?.error?.message || parsed?.message || text.slice(0, 200)}`,
+      );
+    }
+    return parsed;
+  }
+
+  private async callTextGeneration(model: string, systemPrompt: string, input: BaseGenerateInput): Promise<any> {
+    const useChat = model === this.cfg.webModel || model.includes('seed-evolving');
+    if (useChat && this.cfg.webModel) {
+      return this.callChatCompletions(model, systemPrompt, input);
+    }
+    return this.callResponses(model, systemPrompt, input);
   }
 
   private extractText(resp: any): string {
@@ -239,32 +331,38 @@ export class VolcengineArkProvider implements AiProviderAdapter {
     return this.toMediaDataUri(url, 'audio/mpeg', true);
   }
 
-  /** 首尾帧 / 参考图场景：把用户描述包装成 Seedance 推荐的提示词结构。 */
+  /** 按官方示例：text 在前，再按 图片 → 视频 → 音频 顺序编号（图片1、视频1、音频1…） */
   private buildVideoPrompt(input: VideoSubmitInput): string {
     const refs = input.references || [];
     const images = refs.filter((r) => r.type === 'image');
+    const videos = refs.filter((r) => r.type === 'video');
+    const audios = refs.filter((r) => r.type === 'audio');
     const hasFirstLast = images.some((r) => r.role === 'first_frame') && images.some((r) => r.role === 'last_frame');
     const userText = sanitizeCopyrightTerms(input.prompt.trim());
-    const safeHint = '保持与参考图一致的原创卡通角色外观，不要提及受版权保护的角色或品牌名称。';
+    const safeHint = '保持与参考素材一致的原创卡通角色外观，不要提及受版权保护的角色或品牌名称。';
+
+    const refHints: string[] = [];
+    if (videos.length === 1) refHints.push('全程使用视频1的第一视角构图与运镜风格');
+    else if (videos.length > 1) refHints.push('全程参考视频1至视频' + videos.length + '的镜头语言');
+    if (audios.length === 1) refHints.push('背景声音统一使用音频1');
+    else if (audios.length > 1) refHints.push('背景声音统一参考音频1等素材');
 
     if (hasFirstLast) {
       return [
         '根据图片1作为首帧、图片2作为尾帧，生成两者之间的过渡视频。',
         safeHint,
+        ...refHints,
         userText,
         '画面从图片1自然过渡到图片2，尾帧定格为图片2。',
       ].filter(Boolean).join(' ');
     }
 
-    if (images.length >= 2) {
-      return `${safeHint} 首帧为图片1，尾帧定格为图片2。${userText}`;
-    }
+    const sceneHints: string[] = [];
+    if (images.length === 1) sceneHints.push('首帧为图片1');
+    else if (images.length >= 2) sceneHints.push('首帧为图片1，尾帧定格为图片2');
 
-    if (images.length === 1) {
-      return `${safeHint} 参考图片1的画面风格与主体。${userText}`;
-    }
-
-    return userText;
+    const prefix = [safeHint, ...refHints, sceneHints.join('，')].filter(Boolean).join(' ');
+    return prefix ? `${prefix}。${userText}` : userText;
   }
 
   private normalizeVideoImageRole(role?: string): string {
@@ -396,23 +494,34 @@ export class VolcengineArkProvider implements AiProviderAdapter {
   }
 
   async generateWebPage(input: BaseGenerateInput): Promise<WebPageResult> {
-    const model = input.model || this.cfg.multimodalModel || this.cfg.textModel;
-    if (!model) throw new Error('未配置网页生成模型');
     const interactive = Boolean(input.options?.interactive);
+    const aiCamp = Boolean(input.options?.aiCamp);
+    const model =
+      input.model ||
+      (aiCamp && this.cfg.webModel ? this.cfg.webModel : this.cfg.multimodalModel || this.cfg.textModel);
+    if (!model) throw new Error('未配置网页生成模型');
+    const aiCampRules = aiCamp
+      ? ' 页面会通过 <script data-ai-camp-runtime> 注入 window.__AI_CAMP__ 对象（含 text/image/video/uploadImage/pickImageFile 方法）。你必须在 <script> 里写 await __AI_CAMP__.text(...) / .image(...) / .video(...) / .uploadImage(file) / .pickImageFile()，禁止在 JavaScript 里写死 mock 故事、假 AI 结果或硬编码模板；点击生成按钮时必须实时调用 __AI_CAMP__ 获取结果并展示。若需要用户上传图片，使用 <input type="file" accept="image/*"> 配合 __AI_CAMP__.uploadImage。'
+      : '';
     const systemPrompt = interactive
-      ? '你是一名擅长做儿童友好交互网页的前端专家。请只输出一个完整的、可独立运行的 HTML 文档，使用内联 <style> 和 <script>，实现用户描述的点击、悬停、动画或音效等交互。不要使用外链 JS/CSS/图片/字体，严禁 document.write、eval、iframe。确保视觉活泼、配色明亮、结构清晰、移动端自适应。只输出 HTML，不要说明文字，不要使用 Markdown 代码块包裹。'
-      : '你是一名擅长做儿童友好网页的前端专家。请只输出一个完整的、可独立运行的 HTML 文档，使用内联 <style>，不要使用 <script> 或外链 JS，严禁使用 document.write、eval、iframe。确保视觉活泼、配色明亮、结构清晰、移动端自适应。只输出 HTML，不要说明文字，不要使用 Markdown 代码块包裹。';
-    const resp = await this.callResponses(model, systemPrompt, input);
+      ? `你是一名擅长做儿童友好交互网页的前端专家。请只输出一个完整的、可独立运行的 HTML 文档，使用内联 <style> 和 <script>，实现用户描述的点击、悬停、动画或音效等交互。不要使用外链 JS/CSS/字体。图片/视频/音频可以使用用户提示词「作品清单」中明确给出的完整 URL（含 /uploads/ 与 https 媒体地址），必须用 <img>/<video>/<audio> 按清单原样嵌入，严禁省略清单中的媒体，也严禁使用清单未列出的外部图片或未知 CDN。严禁 document.write、eval、iframe。确保视觉活泼、配色明亮、结构清晰、移动端自适应。${aiCampRules} 只输出 HTML，不要说明文字，不要使用 Markdown 代码块包裹。`
+      : '你是一名擅长做儿童友好网页的前端专家。请只输出一个完整的、可独立运行的 HTML 文档，使用内联 <style>，不要使用 <script> 或外链 JS。图片/视频/音频可以使用用户提示词中明确给出的完整 URL（含 /uploads/），必须按清单嵌入。严禁使用 document.write、eval、iframe。确保视觉活泼、配色明亮、结构清晰、移动端自适应。只输出 HTML，不要说明文字，不要使用 Markdown 代码块包裹。';
+    const resp = await this.callTextGeneration(model, systemPrompt, {
+      ...input,
+      options: {
+        ...input.options,
+        messages: input.options?.messages,
+      },
+    });
     const raw = this.extractText(resp).trim();
     const html = stripMarkdownFence(raw);
     return { html, raw: resp };
   }
 
   async generatePoster(input: BaseGenerateInput): Promise<PosterResult> {
-    // Haven't wired image model yet -> produce an HTML "poster card" via the text model.
     const webResult = await this.generateWebPage({
       ...input,
-      prompt: `请把下面的海报需求转成一张 A4 纵向的 HTML 海报，主题鲜明、字体大、适合打印和展示：${input.prompt}`,
+      prompt: `请把下面的海报需求转成一张 HTML 海报（单文件、内联 CSS，按需求中的比例与展示设备排版，适合打印和屏幕展示）：\n\n${input.prompt}`,
     });
     return { html: webResult.html, raw: webResult.raw };
   }
@@ -453,35 +562,39 @@ export class VolcengineArkProvider implements AiProviderAdapter {
   }
 
   async submitVideoTask(input: VideoSubmitInput): Promise<VideoTaskResult> {
-    const model = input.model || this.cfg.videoModel;
+    const model = resolveArkVideoModel(input.model, this.cfg.videoModel);
     if (!model) throw new Error('未配置视频模型 (ARK_VIDEO_MODEL)');
 
+    const refs = input.references || [];
+    const images = refs.filter((r) => r.type === 'image');
+    const videos = refs.filter((r) => r.type === 'video');
+    const audios = refs.filter((r) => r.type === 'audio');
+
     const content: any[] = [{ type: 'text', text: this.buildVideoPrompt(input) }];
-    if (input.references?.length) {
-      for (const r of input.references) {
-        if (r.type === 'image') {
-          const url = await this.toImagePayload(r.url);
-          content.push({
-            type: 'image_url',
-            image_url: { url },
-            role: this.normalizeVideoImageRole(r.role),
-          });
-        } else if (r.type === 'video') {
-          const url = await this.toVideoPayload(r.url);
-          content.push({
-            type: 'video_url',
-            video_url: { url },
-            role: r.role || 'reference_video',
-          });
-        } else if (r.type === 'audio') {
-          const url = await this.toAudioPayload(r.url);
-          content.push({
-            type: 'audio_url',
-            audio_url: { url },
-            role: r.role || 'reference_audio',
-          });
-        }
-      }
+
+    for (const r of images) {
+      const url = await this.toImagePayload(r.url);
+      content.push({
+        type: 'image_url',
+        image_url: { url },
+        role: this.normalizeVideoImageRole(r.role),
+      });
+    }
+    for (const r of videos) {
+      const url = await this.toVideoPayload(r.url);
+      content.push({
+        type: 'video_url',
+        video_url: { url },
+        role: r.role || 'reference_video',
+      });
+    }
+    for (const r of audios) {
+      const url = await this.toAudioPayload(r.url);
+      content.push({
+        type: 'audio_url',
+        audio_url: { url },
+        role: r.role || 'reference_audio',
+      });
     }
 
     const body: any = {
@@ -489,7 +602,7 @@ export class VolcengineArkProvider implements AiProviderAdapter {
       content,
       generate_audio: input.generateAudio ?? true,
       ratio: input.ratio ?? '16:9',
-      duration: input.duration ?? 5,
+      duration: normalizeSeedanceDuration(input.duration),
       watermark: input.watermark ?? false,
     };
 
@@ -497,7 +610,7 @@ export class VolcengineArkProvider implements AiProviderAdapter {
       method: 'POST',
       headers: this.headers(),
       body: JSON.stringify(body),
-      ...VolcengineArkProvider.FAST_TIMEOUTS,
+      ...VolcengineArkProvider.SLOW_TIMEOUTS,
     });
     const text = await res.body.text();
     let parsed: any;
@@ -553,7 +666,15 @@ export class VolcengineArkProvider implements AiProviderAdapter {
   }
 }
 
-/** Map UI sizes to Seedream 5 (`2k`/`3k`/`4k` or explicit WxH); legacy models keep `1024x1024`. */
+/** Seedance 2.0 Mini 视频时长：官方支持 4–15 秒整数，默认 5 */
+export function normalizeSeedanceDuration(seconds?: number): number {
+  const d = seconds ?? 5;
+  const rounded = Math.round(d);
+  if (rounded >= 4 && rounded <= 15) return rounded;
+  if (rounded < 4) return 5;
+  return 15;
+}
+
 function extractVideoUrl(parsed: any): string | undefined {
   const direct = parsed.video_url
     || parsed.content?.video_url

@@ -1,4 +1,6 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { assetPath } from '@/lib/asset-path';
 import { useReportGameProgress } from '@/hooks/use-report-game-progress';
@@ -93,6 +95,7 @@ function Board({
   onPick: (id: string) => void;
   readonly?: boolean;
 }) {
+  const { tx } = useLanguage();
   return (
     <div
       className={`relative w-full rounded-2xl border-2 border-orange-100 overflow-hidden bg-slate-100 ${readonly ? 'pointer-events-none' : ''}`}
@@ -104,7 +107,7 @@ function Board({
         backgroundRepeat: 'no-repeat',
       }}
     >
-      <div className="absolute top-1 left-2 text-[10px] font-bold bg-white/80 rounded-full px-2 py-0.5 z-10">{side === 'left' ? '图 A' : '图 B'}</div>
+      <div className="absolute top-1 left-2 text-[10px] font-bold bg-white/80 rounded-full px-2 py-0.5 z-10">{side === 'left' ? tx('图 A') : tx('图 B')}</div>
       {puzzle.diffs.map((d) => {
         const x = side === 'left' ? d.lx : d.rx;
         const y = side === 'left' ? d.ly : d.ry;
@@ -136,6 +139,7 @@ function highlight(text: string) {
 }
 
 function LevelTabs({ idx, completedCount }: { idx: number; completedCount: number }) {
+  const { tx } = useLanguage();
   return (
     <div className="flex gap-2 flex-wrap">
       {LEVEL_LABELS.map((label, i) => {
@@ -153,7 +157,7 @@ function LevelTabs({ idx, completedCount }: { idx: number; completedCount: numbe
             }`}
           >
             {isDone && !isCurrent ? '✅ ' : ''}
-            {label}
+            {tx(label)}
           </div>
         );
       })}
@@ -172,6 +176,7 @@ function PromptReveal({
   levelLabel: string;
   onKnow: () => void;
 }) {
+  const { tx } = useLanguage();
   const allFound = Object.fromEntries(puzzle.diffs.map((d) => [d.id, true]));
 
   return (
@@ -179,8 +184,8 @@ function PromptReveal({
       <LevelTabs idx={idx} completedCount={idx} />
 
       <div className="kid-card">
-        <div className="font-extrabold text-lg text-center">🔤 {levelLabel} · 原来是提示词不一样！</div>
-        <p className="text-sm text-ink-soft text-center mt-1">两张图看起来不同，是因为给 AI 的提示词有细微差别。</p>
+        <div className="font-extrabold text-lg text-center">🔤 {tx(levelLabel)} · {tx('原来是提示词不一样！')}</div>
+        <p className="text-sm text-ink-soft text-center mt-1">{tx('两张图看起来不同，是因为给 AI 的提示词有细微差别。')}</p>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
           <Board puzzle={puzzle} side="left" found={allFound} onPick={() => {}} readonly />
@@ -189,21 +194,21 @@ function PromptReveal({
 
         <div className="mt-4 space-y-3">
           <div className="rounded-xl bg-sky-50 border-2 border-sky-100 p-3">
-            <div className="text-xs font-bold text-sky-700 mb-1">图 A 的提示词</div>
+            <div className="text-xs font-bold text-sky-700 mb-1">{tx('图 A 的提示词')}</div>
             <div className="text-sm leading-relaxed">{highlight(puzzle.promptLeft)}</div>
           </div>
           <div className="rounded-xl bg-pink-50 border-2 border-pink-100 p-3">
-            <div className="text-xs font-bold text-pink-700 mb-1">图 B 的提示词</div>
+            <div className="text-xs font-bold text-pink-700 mb-1">{tx('图 B 的提示词')}</div>
             <div className="text-sm leading-relaxed">{highlight(puzzle.promptRight)}</div>
           </div>
           <div className="space-y-1.5">
             {puzzle.diffs.map((d) => (
-              <div key={d.id} className="text-sm text-ink-soft">• {d.explanation}</div>
+              <div key={d.id} className="text-sm text-ink-soft">• {tx(d.explanation)}</div>
             ))}
           </div>
         </div>
         <button onClick={onKnow} className="kid-button-primary w-full mt-4">
-          我知道啦
+          {tx('我知道啦')}
         </button>
       </div>
     </div>
@@ -211,6 +216,7 @@ function PromptReveal({
 }
 
 function CongratsView({ onRestart }: { onRestart: () => void }) {
+  const { tx } = useLanguage();
   return (
     <div className="space-y-4">
       <div className="flex gap-2 flex-wrap">
@@ -223,12 +229,12 @@ function CongratsView({ onRestart }: { onRestart: () => void }) {
 
       <div className="kid-card-mint text-center space-y-3 py-8">
         <div className="text-5xl">🎉</div>
-        <div className="font-extrabold text-2xl text-ink">恭喜你，全部通关啦！</div>
+        <div className="font-extrabold text-2xl text-ink">{tx('恭喜你，全部通关啦！')}</div>
         <p className="text-sm text-ink-soft leading-relaxed max-w-md mx-auto">
-          你已经完成了四关「AI 图片找不同」。原来 AI 画出的每张图，背后都藏着一句提示词——改几个词，画面就会不一样！
+          {tx('你已经完成了四关「AI 图片找不同」。原来 AI 画出的每张图，背后都藏着一句提示词——改几个词，画面就会不一样！')}
         </p>
         <button onClick={onRestart} className="kid-button-ghost mt-2">
-          🔄 再玩一次
+          {tx('🔄 再玩一次')}
         </button>
       </div>
     </div>
@@ -236,6 +242,7 @@ function CongratsView({ onRestart }: { onRestart: () => void }) {
 }
 
 export function SpotDiffGame() {
+  const { tx } = useLanguage();
   const report = useReportGameProgress('spot-diff');
   const [idx, setIdx] = useState(0);
   const [found, setFound] = useState<Record<string, boolean>>({});
@@ -244,7 +251,7 @@ export function SpotDiffGame() {
   const autoRevealRef = useRef(false);
 
   const puzzle = PUZZLES[idx];
-  const levelLabel = LEVEL_LABELS[idx];
+  const levelLabel = tx(LEVEL_LABELS[idx]);
 
   const allFound = useMemo(() => puzzle.diffs.every((d) => found[d.id]), [puzzle, found]);
   const foundCount = puzzle.diffs.filter((d) => found[d.id]).length;
@@ -345,7 +352,7 @@ export function SpotDiffGame() {
     <div className="space-y-4">
       <div className="kid-card-pink">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🧐 两张图都是 AI 画的，但提示词有一点点不一样！在 <b>任意一张图</b> 上点出不同的地方（共 {puzzle.diffs.length} 处），找全后会自动带你去看提示词差在哪。
+          🧐 两张图都是 AI 画的，但提示词有一点点不一样！在 <b>{tx('任意一张图')}</b> 上点出不同的地方（共 {puzzle.diffs.length} 处），找全后会自动带你去看提示词差在哪。
         </p>
       </div>
 
@@ -353,7 +360,7 @@ export function SpotDiffGame() {
 
       <div className="text-center">
         <span className="inline-block bg-teal-100 text-teal-700 font-bold text-xs px-3 py-1 rounded-full">
-          🏷️ {levelLabel}｜{puzzle.title}
+          🏷️ {levelLabel}｜{tx(puzzle.title)}
         </span>
       </div>
 
@@ -363,10 +370,10 @@ export function SpotDiffGame() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="tag-mint">已找到 {foundCount}/{puzzle.diffs.length}</span>
-        <button onClick={resetCurrentLevel} className="kid-button-ghost">🔄 重来</button>
+        <span className="tag-mint">{tx('已找到 ')}{foundCount}/{puzzle.diffs.length}</span>
+        <button onClick={resetCurrentLevel} className="kid-button-ghost">{tx('🔄 重来')}</button>
         {!allFound && (
-          <span className="text-xs text-ink-soft font-semibold">找全 {puzzle.diffs.length} 处不同后，会自动进入提示词对比页</span>
+          <span className="text-xs text-ink-soft font-semibold">{tx('找全 ')}{puzzle.diffs.length}{tx(' 处不同后，会自动进入提示词对比页')}</span>
         )}
       </div>
     </div>

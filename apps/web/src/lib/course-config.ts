@@ -1,5 +1,8 @@
-// 课程模式（6 节课闯关）配置 —— 纯数据，不含 React，便于在 server / client 组件复用。
+// 课程模式（7 节课闯关）配置 —— 纯数据，不含 React，便于在 server / client 组件复用。
 // 13 个小游戏对应 PDF《20260713 苏外 AI 训练营》课程规划。
+
+import type { Locale } from '@/lib/i18n/types';
+import { COURSE_LESSONS_EN } from '@/lib/i18n/course-lessons-en';
 
 export type GameStatus = 'playable' | 'placeholder';
 
@@ -26,7 +29,7 @@ export interface CourseTool {
 export interface CourseLesson {
   /** 路由 slug：/student/course/<slug> */
   slug: string;
-  /** 第几节课（1-6） */
+  /** 第几节课（1-7） */
   index: number;
   title: string;
   subtitle: string;
@@ -34,6 +37,8 @@ export interface CourseLesson {
   goal: string;
   color: ThemeColor;
   games: CourseGame[];
+  /** 课节页顶部独立主打入口（对应 games 里某个 slug） */
+  featuredSlug?: string;
   /** 课程内直达的探索创作工具（生图/生视频等） */
   tools?: CourseTool[];
 }
@@ -50,6 +55,8 @@ export const COURSE_LESSONS: CourseLesson[] = [
     games: [
       { slug: 'group-grab', num: 0, title: '抢组分队', emoji: '👯', desc: '老师设置多个小组名称，大家在电脑上抢想去的小组，满员后自动调剂。', status: 'playable' },
       { slug: 'find-ai', num: 1, title: 'AI 助手在哪里', emoji: '🔍', desc: '在校园 / 家庭 / 公共场景里找出哪些是 AI。', status: 'playable' },
+      { slug: 'digit-detective', num: 14, title: '手写数字识别', emoji: '✍️', desc: '在屏幕上写数字，看看 AI 能不能认出来！', status: 'playable' },
+      { slug: 'pose-play', num: 15, title: '姿势识别挑战', emoji: '📷', desc: '对着摄像头做动作，体验 AI 的「眼睛」！', status: 'playable' },
       { slug: 'turing-test', num: 2, title: '图灵测试小游戏', emoji: '🤖', desc: '猜猜哪些回答是 AI、哪些是小朋友写的。', status: 'playable' },
       { slug: 'work-card-1', num: 13, title: '作品卡 1.0', emoji: '📇', desc: '写下今天的发现（回顾版）。', status: 'playable' },
     ],
@@ -118,15 +125,21 @@ export const COURSE_LESSONS: CourseLesson[] = [
     color: 'sky',
     games: [
       { slug: 'video-detective', num: 6, title: 'AI 视频识别', emoji: '🎞️', desc: '看老师大屏上的视频，在电脑上选答案；老师能实时看到全班选项。', status: 'playable' },
-      { slug: 'video-studio', num: 7, title: '自由生视频', emoji: '✨', desc: '无首帧或有首帧自由生视频，填写描述后直接生成。', status: 'playable' },
-      { slug: 'frame-video', num: 8, title: '关键帧生视频', emoji: '🪄', desc: '上传关键帧图片，描述中间发生的事，AI 生成过渡视频。', status: 'playable' },
+      { slug: 'ai-director', num: 7, title: 'AI 小导演', emoji: '🎬', desc: '三步完成短片：剧本创作 → 分镜创作 → 视频创作，每步可一键导入上一步成果。', status: 'playable' },
+      { slug: 'video-studio', num: 8, title: '自由生视频', emoji: '✨', desc: '无首帧、有首帧或首尾帧自由生视频，填写描述后直接生成。', status: 'playable' },
     ],
     tools: [
+      {
+        href: '/student/course/g/ai-director',
+        title: 'AI 小导演',
+        emoji: '🎬',
+        desc: '剧本 → 分镜 → 视频三步流水线，每步可一键导入。',
+      },
       {
         href: '/student/course/g/video-studio',
         title: '自由生视频工作台',
         emoji: '✨',
-        desc: '无首帧或有首帧自由生视频，作品自动同步到老师看板。',
+        desc: '无首帧、有首帧或首尾帧自由生视频，作品自动同步到老师看板。',
       },
     ],
   },
@@ -142,9 +155,9 @@ export const COURSE_LESSONS: CourseLesson[] = [
       { slug: 'cancel-subscription', num: 9, title: '来取消续费吧', emoji: '💳', desc: '黄金会员页面里找「取消续费」，再点「确认取消」！', status: 'playable' },
       { slug: 'layout-arrange', num: 10, title: '摆一摆侦探游戏布局', emoji: '🧩', desc: '把游戏标题、计时器、卡牌区、按钮、查看提示、成绩这 6 个零件拖到合适的位置，摆完点「提交检查」，AI 会给你小建议。', status: 'playable' },
       { slug: 'mini-interaction', num: 11, title: '做一个小交互', emoji: '👆', desc: '下拉选「点哪里 + 单击/双击/右键/拖拽 + 效果」，可一条一条叠加交互。', status: 'playable' },
-      { slug: 'memory-match', num: 12, title: '小侦探·记忆力挑战', emoji: '🕵️', desc: '每人默认有一份可玩的三关翻牌小游戏，可直接进「小游戏优化」改细节、试玩或打开游戏网页。', status: 'playable' },
+      { slug: 'memory-match', num: 12, title: '小侦探·记忆力挑战', emoji: '🕵️', desc: '每人默认有一份可玩的两关翻牌小游戏，可直接进「小游戏优化」改细节、试玩或打开游戏网页。', status: 'playable' },
       { slug: 'memory-match-create', num: 13, title: '设计你的侦探翻牌游戏', emoji: '🎨', desc: '分四步做选择题：选场景、布局、交互和难度，AI 按你的选择生成见习/线索/王牌侦探三关翻牌游戏，生成后可继续优化。', status: 'playable' },
-      { slug: 'portfolio', num: 14, title: 'AI 作品集', emoji: '🖼️', desc: '选作品 + 填空说清楚场景、布局、交互三件事，一键生成我的作品展示页。', status: 'playable' },
+      { slug: 'portfolio', num: 14, title: 'AI 作品集', emoji: '🖼️', desc: '选作品 + 填空说清楚布局、交互，一键生成包含全部选中作品的作品展示页。', status: 'playable' },
       { slug: 'freeform-app', num: 15, title: '做自己的 AI 小应用', emoji: '🪄', desc: '自己选题！填空说清楚场景、布局、交互三件事，AI 帮你做出一个真正能玩的小应用。', status: 'playable' },
     ],
   },
@@ -161,14 +174,51 @@ export const COURSE_LESSONS: CourseLesson[] = [
       { slug: 'detective-summary', num: 17, title: '大侦探总结分享', emoji: '🕵️', desc: 'AI 幻觉、智慧之盾、AI 伦理思辨……选出你的答案，讲讲你的收获，老师能实时看到。', status: 'playable' },
     ],
   },
+  {
+    slug: 'lesson-pm',
+    index: 7,
+    title: 'AI 产品经理',
+    subtitle: '从想法到小应用路演',
+    emoji: '💼',
+    goal: '从兴趣出发挖掘产品需求，用「AI 应用创作者」完成需求说明书、小应用与路演材料；也可单独练习各环节。',
+    color: 'yellow',
+    featuredSlug: 'pm-creator',
+    games: [
+      {
+        slug: 'pm-creator',
+        num: 0,
+        title: 'AI 应用创作者',
+        emoji: '💼',
+        desc: '三步一气呵成：需求说明书 → 小应用 → 路演材料。每步可保存，下一步会自动读取并用 AI 转译上一步内容。',
+        status: 'playable',
+      },
+      { slug: 'pm-requirements', num: 18, title: '问题挖掘与需求说明书撰写', emoji: '📝', desc: '用选择题向导或 AI 对话完成作品卡，撰写 AI 产品需求说明书。', status: 'playable' },
+      { slug: 'pm-prompt-test', num: 19, title: 'AI 系统提示词测试', emoji: '🧪', desc: '同一任务换不同 AI 人设和画风，在有趣案例里对比生文、生图差异。', status: 'playable' },
+      { slug: 'pm-single-app', num: 20, title: '单 AI 小应用', emoji: '🪄', desc: '填空描述场景、布局、交互，配置一个 AI，生成可迭代的小应用。', status: 'playable' },
+      { slug: 'pm-workflow-app', num: 21, title: 'AI 工作流小应用', emoji: '🔗', desc: '用 DAG 设计多个 AI 组成工作流，生成可串联调用的小应用。', status: 'playable' },
+      { slug: 'pm-pitch', num: 22, title: 'AI 小应用路演材料准备', emoji: '🎤', desc: '导入需求说明书和小应用，生成背景、目标、方法、应用效果、展望五段路演框架。', status: 'playable' },
+    ],
+    tools: [
+      {
+        href: '/student/pm-applications',
+        title: '我的 AI 应用',
+        emoji: '💼',
+        desc: '查看已保存的完整三步作品，继续编辑或新建下一个 AI 产品。',
+      },
+    ],
+  },
 ];
 
-export function getLesson(slug: string): CourseLesson | undefined {
-  return COURSE_LESSONS.find((l) => l.slug === slug);
+export function getCourseLessons(locale: Locale = 'zh'): CourseLesson[] {
+  return locale === 'en' ? COURSE_LESSONS_EN : COURSE_LESSONS;
 }
 
-export function findGame(slug: string): { lesson: CourseLesson; game: CourseGame } | undefined {
-  for (const lesson of COURSE_LESSONS) {
+export function getLesson(slug: string, locale: Locale = 'zh'): CourseLesson | undefined {
+  return getCourseLessons(locale).find((l) => l.slug === slug);
+}
+
+export function findGame(slug: string, locale: Locale = 'zh'): { lesson: CourseLesson; game: CourseGame } | undefined {
+  for (const lesson of getCourseLessons(locale)) {
     const game = lesson.games.find((g) => g.slug === slug);
     if (game) return { lesson, game };
   }
@@ -181,15 +231,15 @@ export interface FlatGame {
 }
 
 /** 把所有课的游戏拉平成一个顺序列表 */
-export function flatGames(): FlatGame[] {
+export function flatGames(locale: Locale = 'zh'): FlatGame[] {
   const out: FlatGame[] = [];
-  for (const lesson of COURSE_LESSONS) for (const game of lesson.games) out.push({ game, lesson });
+  for (const lesson of getCourseLessons(locale)) for (const game of lesson.games) out.push({ game, lesson });
   return out;
 }
 
 /** 取某个游戏的上一个 / 下一个游戏（跨课连续） */
-export function getAdjacentGames(slug: string): { prev: FlatGame | null; next: FlatGame | null } {
-  const flat = flatGames();
+export function getAdjacentGames(slug: string, locale: Locale = 'zh'): { prev: FlatGame | null; next: FlatGame | null } {
+  const flat = flatGames(locale);
   const idx = flat.findIndex((f) => f.game.slug === slug);
   if (idx < 0) return { prev: null, next: null };
   return {

@@ -1,16 +1,24 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, apiAuth } from '@/lib/api';
+import { useCourseStreamChannel } from '@/contexts/course-stream-context';
 import { reportGrowth } from '@/lib/growth-report';
+import { useLanguage } from '@/contexts/language-context';
 import {
-  VIDEO_RECOGNITION_QUESTIONS,
+  compareVideoTopTitle,
+  compareVideoBottomTitle,
+  isAnswerCorrect,
+  isAnswerSubmitted,
+  normalizeVideoRecognitionSession,
+  questionDisplayTitle,
+  questionOptions,
+  singleVideoTitle,
   videoRecognitionScore,
   type VideoRecognitionAnswerRecord,
   type VideoRecognitionQuestion,
+  type VideoRecognitionSession,
 } from '@/lib/video-recognition';
-
-type Answers = Record<string, VideoRecognitionAnswerRecord>;
 
 function QuestionCard({
   question,
@@ -23,22 +31,35 @@ function QuestionCard({
   submitted: boolean;
   onPick: (optionId: string, optionLabel: string) => void;
 }) {
+  const { tx } = useLanguage();
+  const options = questionOptions(question);
+  const title = questionDisplayTitle(question);
+  const pickedId = answer?.optionId;
+
   return (
     <div className="kid-card space-y-3">
       <div className="font-extrabold leading-snug">
-        <span className="text-xl mr-1.5">{question.emoji}</span>
-        {question.title}
+        <span className="text-xl mr-1.5">{question.emoji || '🎬'}</span>
+        {tx('第题')} {question.num} {tx(' 题：')}{title}
       </div>
-      <p className="text-xs text-ink-soft">👀 请看大屏幕上的视频，在下面选出你的答案：</p>
-      <div className={`grid gap-2 ${question.options.length > 2 ? 'sm:grid-cols-2' : ''}`}>
-        {question.options.map((opt) => {
-          const selected = answer?.optionId === opt.id;
+      {question.template === 'compare' && (
+        <p className="text-xs text-violet-700 font-semibold">
+          ⬆️ {compareVideoTopTitle(question)} · ⬇️ {compareVideoBottomTitle(question)}
+        </p>
+      )}
+      {question.template === 'single' && (
+        <p className="text-xs text-ink-soft">{tx('🎞️ 大屏正在播放：')}{singleVideoTitle(question)}</p>
+      )}
+      <p className="text-xs text-ink-soft">{tx('请看大屏幕上的视频，在下面选出你的答案：')}</p>
+      <div className={`grid gap-2 ${options.length > 2 ? 'sm:grid-cols-2' : ''}`}>
+        {options.map((opt) => {
+          const selected = pickedId === opt.id;
           const showResult = submitted;
-          const isCorrect = !!opt.correct;
+          const correct = isAnswerCorrect(question, opt.id);
           let cls = 'border-orange-100 bg-white text-ink-soft hover:border-orange-200';
           if (selected) cls = 'border-brand bg-orange-50 ring-2 ring-orange-200 font-bold text-ink';
-          if (showResult && selected && isCorrect) cls = 'border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 font-bold text-emerald-800';
-          if (showResult && selected && !isCorrect) cls = 'border-rose-300 bg-rose-50 ring-2 ring-rose-200 font-bold text-rose-700';
+          if (showResult && selected && correct) cls = 'border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 font-bold text-emerald-800';
+          if (showResult && selected && !correct) cls = 'border-rose-300 bg-rose-50 ring-2 ring-rose-200 font-bold text-rose-700';
           return (
             <button
               key={opt.id}
@@ -49,7 +70,7 @@ function QuestionCard({
             >
               {selected && <span className="mr-1.5">✓</span>}
               {opt.label}
-              {showResult && selected && (isCorrect ? ' ✅' : ' ❌')}
+              {showResult && selected && (correct ? ' ✅' : ' ❌')}
             </button>
           );
         })}
@@ -59,128 +80,173 @@ function QuestionCard({
 }
 
 export function VideoDetectiveGame() {
-  const [answers, setAnswers] = useState<Answers>({});
-  const [submitted, setSubmitted] = useState(false);
+  const { tx } = useLanguage();
+  const { data: streamSession } = useCourseStreamChannel<VideoRecognitionSession>(
+    'videoRecognition',
+    '/course/video-recognition',
+  );
+  const [localOverride, setLocalOverride] = useState<VideoRecognitionSession | null>(null);
+  const rawSession = localOverride ?? streamSession;
+  useEffect(() => {
+    setLocalOverride(null);
+  }, [streamSession]);
+  const session = useMemo(() => normalizeVideoRecognitionSession(rawSession), [rawSession]);
+  const [studentId, setStudentId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<VideoRecognitionAnswerRecord | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answersRef = useRef<Answers>({});
-  answersRef.current = answers;
 
-  const report = useCallback(async (done: boolean) => {
-    const payload = Object.entries(answersRef.current).map(([questionId, a]) => ({
-      questionId,
-      optionId: a.optionId,
-      optionLabel: a.optionLabel,
-    }));
-    if (payload.length === 0) return;
-    try {
-      await api.post('/course/video-recognition/report', { answers: payload, done });
-    } catch {
-      /* 上报失败不打断答题 */
-    }
+  useEffect(() => {
+    apiAuth.me().then((u) => setStudentId(u.id)).catch(() => {});
   }, []);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const questions = session?.questions ?? [];
+  const currentNum = session?.currentQuestion ?? 0;
+  const currentQuestion = useMemo(
+    () => questions.find((q) => q.num === currentNum) ?? null,
+    [questions, currentNum],
+  );
+
+  const myRecord = studentId && session?.records ? session.records[studentId] : undefined;
+  const serverAnswer = currentQuestion ? myRecord?.answers[currentQuestion.id] : undefined;
+  const submitted = isAnswerSubmitted(serverAnswer);
+  const displayAnswer = submitted ? serverAnswer : draft ?? serverAnswer;
+
   useEffect(() => {
-    if (Object.keys(answers).length === 0) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => void report(submitted), 1500);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [answers, submitted, report]);
+    if (!currentQuestion) {
+      setDraft(null);
+      return;
+    }
+    const saved = myRecord?.answers[currentQuestion.id];
+    if (isAnswerSubmitted(saved)) {
+      setDraft(null);
+    } else if (saved?.optionId) {
+      setDraft(saved);
+    } else {
+      setDraft(null);
+    }
+  }, [currentQuestion?.id, myRecord?.answers]);
 
-  function setAnswer(questionId: string, patch: Partial<VideoRecognitionAnswerRecord>) {
-    setAnswers((prev) => ({ ...prev, [questionId]: { ...prev[questionId], ...patch } }));
-  }
+  const allSubmittedAnswers = useMemo(() => {
+    const map: Record<string, VideoRecognitionAnswerRecord> = {};
+    for (const q of questions) {
+      const a = myRecord?.answers[q.id];
+      if (isAnswerSubmitted(a)) map[q.id] = a!;
+    }
+    return map;
+  }, [questions, myRecord?.answers]);
 
-  async function submit() {
-    const missing = VIDEO_RECOGNITION_QUESTIONS.filter((q) => !answers[q.id]?.optionId);
-    if (missing.length > 0) {
-      setError(`还有 ${missing.length} 题没选答案：${missing.map((q) => q.emoji).join(' ')}`);
+  const totalScore = videoRecognitionScore(allSubmittedAnswers, questions);
+
+  async function submitCurrent() {
+    if (!currentQuestion || !draft?.optionId) {
+      setError(tx('请先选择一个答案'));
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      await report(true);
-      setSubmitted(true);
-      const score = videoRecognitionScore(answers);
-      reportGrowth({
-        kind: 'game',
-        gameSlug: 'video-detective',
-        title: 'AI 视频识别',
-        summary: `答对 ${score.correct}/${score.total} 题`,
-        detail: VIDEO_RECOGNITION_QUESTIONS.map((q) => ({
-          question: q.title,
-          answer: answers[q.id]?.optionLabel,
-        })),
+      const r = await api.post('/course/video-recognition/report', {
+        answers: [
+          {
+            questionId: currentQuestion.id,
+            optionId: draft.optionId,
+            optionLabel: draft.optionLabel,
+          },
+        ],
+        submitQuestionId: currentQuestion.id,
       });
+      setLocalOverride(r.data || null);
+      if (isAnswerCorrect(currentQuestion, draft.optionId)) {
+        reportGrowth({
+          kind: 'game',
+          gameSlug: 'video-detective',
+          title: tx('AI 视频识别'),
+          summary: `${tx('第题')} ${currentQuestion.num} ${tx(' 题答对')}`,
+          detail: [{ question: questionDisplayTitle(currentQuestion), answer: draft.optionLabel }],
+        });
+      }
     } catch {
-      setError('提交失败，请再试一次');
+      setError(tx('提交失败，请再试一次'));
     } finally {
       setSaving(false);
     }
   }
 
-  const score = videoRecognitionScore(answers);
-  const answeredCount = VIDEO_RECOGNITION_QUESTIONS.filter((q) => answers[q.id]?.optionId).length;
+  const onPick = useCallback((optionId: string, optionLabel: string) => {
+    if (submitted) return;
+    setDraft({ optionId, optionLabel });
+    setError(null);
+  }, [submitted]);
 
   return (
     <div className="space-y-4">
       <div className="kid-card-sky">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          🎞️ <strong>AI 视频识别</strong>：老师会在大屏幕上播放视频，你只需要在电脑上选答案。
-          每选一题都会同步给老师，共 <strong>{VIDEO_RECOGNITION_QUESTIONS.length} 道题</strong>。
+          🎞️ <strong>{tx('AI 视频识别')}</strong>
+          {tx('：老师每发布一题，你只需作答')}
+          <strong>{tx('当前这一题')}</strong>
+          {tx('。选完答案点「提交本题」，老师会看到全班结果后再出下一题。')}
         </p>
         <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
-          <span className="tag">已答 {answeredCount}/{VIDEO_RECOGNITION_QUESTIONS.length}</span>
-          {submitted && (
+          <span className="tag">{tx('已发布')} {questions.length} {tx(' 题')}</span>
+          {questions.length > 0 && currentQuestion && (
+            <span className="tag bg-violet-50 text-violet-700 border-violet-200">
+              {tx('当前第')} {currentQuestion.num} {tx(' 题')}
+            </span>
+          )}
+          {totalScore.total > 0 && (
             <span className="tag bg-emerald-50 text-emerald-700 border-emerald-200">
-              得分 {score.correct}/{score.total}
+              {tx('已完成')} {totalScore.total} {tx(' 题')}{tx(' · 答对')} {totalScore.correct}
             </span>
           )}
         </div>
       </div>
 
-      {VIDEO_RECOGNITION_QUESTIONS.map((q) => (
-        <QuestionCard
-          key={q.id}
-          question={q}
-          answer={answers[q.id]}
-          submitted={submitted}
-          onPick={(optionId, optionLabel) => setAnswer(q.id, { optionId, optionLabel })}
-        />
-      ))}
+      {questions.length === 0 || !currentQuestion ? (
+        <div className="kid-card text-sm text-ink-soft text-center py-8">
+          {tx('等待老师发布题目… 老师在大屏播放视频后，这里会出现当前题的选项。')}
+        </div>
+      ) : submitted ? (
+        <div className="space-y-3">
+          <QuestionCard
+            question={currentQuestion}
+            answer={serverAnswer}
+            submitted
+            onPick={onPick}
+          />
+          <div className={`kid-card ${isAnswerCorrect(currentQuestion, serverAnswer?.optionId) ? 'kid-card-mint' : 'kid-card-yellow'}`}>
+            <div className="font-extrabold">
+              {isAnswerCorrect(currentQuestion, serverAnswer?.optionId)
+                ? tx('🎉 本题答对了！')
+                : tx('📝 本题已提交，等待老师公布或进入下一题')}
+            </div>
+            <p className="text-xs text-ink-soft mt-1">{tx('你的选择：')}{serverAnswer?.optionLabel}</p>
+          </div>
+          <div className="kid-card text-sm text-ink-soft text-center py-4">
+            {tx('✅ 已提交第')} {currentQuestion.num} {tx(' 题，请等待老师发布下一题…')}
+          </div>
+        </div>
+      ) : (
+        <>
+          <QuestionCard
+            question={currentQuestion}
+            answer={displayAnswer ?? undefined}
+            submitted={false}
+            onPick={onPick}
+          />
+          <button
+            onClick={() => void submitCurrent()}
+            disabled={saving || !draft?.optionId}
+            className="kid-button-primary disabled:opacity-50"
+          >
+            {saving ? tx('提交中…') : tx('✅ 提交本题答案')}
+          </button>
+        </>
+      )}
 
       {error && (
         <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>
-      )}
-
-      {!submitted ? (
-        <button onClick={() => void submit()} disabled={saving} className="kid-button-primary disabled:opacity-50">
-          {saving ? '提交中…' : '✅ 提交全部答案'}
-        </button>
-      ) : (
-        <div className="space-y-3">
-          <div className={`kid-card ${score.correct === score.total ? 'kid-card-mint' : 'kid-card-yellow'}`}>
-            <div className="font-extrabold text-lg">
-              {score.correct === score.total
-                ? '🎉 全部答对！你是 AI 视频识别小专家！'
-                : `答对了 ${score.correct}/${score.total} 题，继续加油！`}
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              setSubmitted(false);
-              setAnswers({});
-              setError(null);
-            }}
-            className="kid-button-ghost"
-          >
-            🔄 再答一次
-          </button>
-        </div>
       )}
     </div>
   );

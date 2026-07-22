@@ -1,4 +1,6 @@
 'use client';
+
+import { useLanguage } from '@/contexts/language-context';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -108,6 +110,7 @@ function buildTreeMeta(state: ThemeState, tid: string) {
 }
 
 export function DecorateRoomGame() {
+  const { tx } = useLanguage();
   const report = useReportGameProgress('decorate-room');
   const [themeId, setThemeId] = useState(THEMES[0].id);
   const theme = useMemo(() => THEMES.find((t) => t.id === themeId) ?? THEMES[0], [themeId]);
@@ -432,7 +435,7 @@ export function DecorateRoomGame() {
     <div className="space-y-4">
       <div className="kid-card-pink">
         <p className="text-sm font-semibold text-ink-soft leading-relaxed">
-          {theme.emoji} 这是{theme.title.replace('的房间', '')}的新家！用文字告诉 AI 想怎么装修。可以一轮一轮改造，也可以<b>点下面任意一版继续装修、长出新的分支</b>。装修分支会<b>自动保存</b>到素材库。切换角色房间时，装修进度会自动保留；<b>AI 装修时也可以先去别的房间看看</b>。
+          {theme.emoji} 这是{theme.title.replace('的房间', '')}的新家！用文字告诉 AI 想怎么装修。可以一轮一轮改造，也可以<b>{tx('点下面任意一版继续装修、长出新的分支')}</b>{tx('。装修分支会')}<b>{tx('自动保存')}</b>{tx('到素材库。切换角色房间时，装修进度会自动保留；')}<b>{tx('AI 装修时也可以先去别的房间看看')}</b>。
         </p>
       </div>
 
@@ -473,19 +476,19 @@ export function DecorateRoomGame() {
         </div>
 
         <div className="kid-card space-y-3">
-          <label className="text-sm font-bold">✏️ 在这一版的基础上，想怎么装修？</label>
+          <label className="text-sm font-bold">{tx('✏️ 在这一版的基础上，想怎么装修？')}</label>
           <textarea
             className="kid-textarea"
             value={request}
             onChange={(e) => setRequestByTheme((prev) => ({ ...prev, [themeId]: e.target.value }))}
-            placeholder="例如：墙刷成天蓝色，放一个大书架和一盏星星灯"
+            placeholder={tx('例如：墙刷成天蓝色，放一个大书架和一盏星星灯')}
             disabled={loading}
           />
           <button type="button" onClick={() => void decorate()} disabled={loading} className="kid-button-primary w-full">
             {loading ? '🪄 AI 正在装修…' : '🪄 装修这一轮'}
           </button>
-          {loading && <AiProgress label="AI 正在装修房间…" />}
-          {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{error}</div>}
+          {loading && <AiProgress label={tx('AI 正在装修房间…')} />}
+          {error && <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{tx(error)}</div>}
           <AiWarning />
         </div>
       </div>
@@ -493,7 +496,7 @@ export function DecorateRoomGame() {
       <div className="kid-card space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <div className="text-sm font-bold">🌳 装修分支（点一版可从那一版继续改造）</div>
+            <div className="text-sm font-bold">{tx('🌳 装修分支（点一版可从那一版继续改造）')}</div>
             <div className="text-xs text-ink-soft mt-0.5">
               已记录 {nodes.length} 个版本 · {roundCount} 轮装修
               {branchPointCount > 0 ? ` · ${branchPointCount} 个分支点` : ''}
@@ -508,7 +511,7 @@ export function DecorateRoomGame() {
         {saved && roundCount > 0 && (
           <div className="text-sm bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl px-3 py-2">
             装修分支已自动写入素材库（含每一版和分支关系）。
-            <Link href="/student/assets" className="underline font-bold ml-1">去素材库查看 →</Link>
+            <Link href="/student/assets" className="underline font-bold ml-1">{tx('去素材库查看 →')}</Link>
           </div>
         )}
         <Branch nodes={nodes} id={ROOT_ID} currentId={current.id} onSelect={setCurrentId} depth={0} />

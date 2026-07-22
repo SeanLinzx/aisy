@@ -18,6 +18,93 @@ export class GroupsService {
     });
   }
 
+  async batchCreate(classId: string, names: string[]) {
+    const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+    if (cleaned.length === 0) return { created: 0, groups: [] as Awaited<ReturnType<GroupsService['list']>> };
+    await this.prisma.group.createMany({
+      data: cleaned.map((name) => ({ classId, name })),
+    });
+    const groups = await this.list(classId);
+    return { created: cleaned.length, groups };
+  }
+
+  private resolveStudentNames(
+    names: string[],
+    students: Array<{ id: string; displayName: string; username: string }>,
+  ) {
+    const matched: string[] = [];
+    const unmatched: string[] = [];
+    for (const raw of names) {
+      const name = raw.trim();
+      if (!name) continue;
+      const found = students.find(
+        (s) =>
+          s.displayName === name
+          || s.username === name
+          || s.displayName.replace(/\s/g, '') === name.replace(/\s/g, ''),
+      );
+      if (found) matched.push(found.id);
+      else unmatched.push(name);
+    }
+    return { matched: [...new Set(matched)], unmatched };
+  }
+
+  private async classStudents(classId: string) {
+    const rows = await this.prisma.classMember.findMany({
+      where: { classId },
+      include: { user: { select: { id: true, displayName: true, username: true, role: true } } },
+    });
+    return rows.filter((r) => r.user.role === 'student').map((r) => r.user);
+  }
+
+  async createWithMembers(classId: string, name: string, memberNames: string[] = []) {
+    const students = await this.classStudents(classId);
+    const group = await this.prisma.group.create({ data: { classId, name: name.trim() } });
+    const { matched, unmatched } = this.resolveStudentNames(memberNames, students);
+    for (const userId of matched) {
+      await this.addMember(group.id, userId);
+    }
+    const full = await this.prisma.group.findUnique({
+      where: { id: group.id },
+      include: {
+        class: { select: { id: true, name: true } },
+        members: { include: { user: { select: { id: true, displayName: true, username: true, avatarUrl: true } } } },
+      },
+    });
+    return { group: full, unmatched };
+  }
+
+  async batchCreateWithMembers(
+    classId: string,
+    items: Array<{ name: string; memberNames?: string[] }>,
+  ) {
+    const students = await this.classStudents(classId);
+    const results: Array<{ name: string; groupId: string; unmatched: string[] }> = [];
+    for (const item of items) {
+      const name = item.name.trim();
+      if (!name) continue;
+      const group = await this.prisma.group.create({ data: { classId, name } });
+      const { matched, unmatched } = this.resolveStudentNames(item.memberNames ?? [], students);
+      for (const userId of matched) {
+        await this.addMember(group.id, userId);
+      }
+      results.push({ name, groupId: group.id, unmatched });
+    }
+    const groups = await this.list(classId);
+    return { created: results.length, results, groups };
+  }
+
+  async addMembersByNames(groupId: string, memberNames: string[]) {
+    const group = await this.prisma.group.findUnique({ where: { id: groupId } });
+    if (!group) throw new NotFoundException('小组不存在');
+    const students = await this.classStudents(group.classId);
+    const { matched, unmatched } = this.resolveStudentNames(memberNames, students);
+    for (const userId of matched) {
+      await this.addMember(groupId, userId);
+    }
+    return { added: matched.length, unmatched, group: await this.list(group.classId).then((gs) => gs.find((g) => g.id === groupId)) };
+  }
+
   create(data: { classId: string; name: string; description?: string }) {
     return this.prisma.group.create({ data });
   }

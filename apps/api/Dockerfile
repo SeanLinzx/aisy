@@ -39,6 +39,9 @@ RUN npm install -g prisma@5.22.0
 COPY --from=builder /prod/api ./
 # 构建期生成的种子库仅作为首次启动的初始化模板
 RUN mv /app/prisma/prod.db /app/prisma/seed-template.db
+COPY apps/api/scripts/upsert-sensitive-words.js /app/scripts/upsert-sensitive-words.js
+COPY apps/api/scripts/bulk-generate-portfolios.js /app/scripts/bulk-generate-portfolios.js
+COPY packages/portfolio-html /app/packages/portfolio-html
 COPY deploy/api-entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 

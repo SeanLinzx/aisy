@@ -1,29 +1,14 @@
 import { Logger } from '@nestjs/common';
 import { request } from 'undici';
 import { signVolcengineOpenApiRequest } from '../../../common/utils/volcengine-sign';
-
-export interface MusicGenerateInput {
-  lyrics: string;
-  genre?: string;
-  mood?: string;
-  gender?: string;
-  timbre?: string;
-  duration?: number;
-}
-
-export interface MusicTaskResult {
-  taskId: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed';
-  audioUrl?: string;
-  error?: string;
-  raw?: any;
-}
+import { MusicClient, MusicGenerateInput, MusicTaskResult } from './music-client.types';
 
 const HOST = 'open.volcengineapi.com';
 const PATH = '/';
 const VERSION = '2024-08-12';
 
-export class VolcengineMusicClient {
+export class VolcengineMusicClient implements MusicClient {
+  readonly providerName = 'volcengine-music';
   private readonly logger = new Logger('VolcengineMusic');
 
   constructor(
@@ -90,7 +75,7 @@ export class VolcengineMusicClient {
     return { taskId, status: 'queued', raw: resp };
   }
 
-  async pollSongTask(taskId: string): Promise<MusicTaskResult> {
+  async pollSongTask(taskId: string, _input?: MusicGenerateInput): Promise<MusicTaskResult> {
     const resp = await this.call('QuerySong', { TaskID: taskId });
     const result = resp?.Result ?? {};
     const statusCode = Number(result.Status);
@@ -113,8 +98,9 @@ export class VolcengineMusicClient {
   }
 }
 
-/** Mock client for local dev without VOLC AK/SK. */
-export class MockMusicClient {
+/** Mock client for local dev without API keys. */
+export class MockMusicClient implements MusicClient {
+  readonly providerName = 'mock-music';
   private readonly tasks = new Map<string, { createdAt: number; lyrics: string }>();
 
   async submitSongTask(input: MusicGenerateInput): Promise<MusicTaskResult> {
@@ -123,7 +109,7 @@ export class MockMusicClient {
     return { taskId, status: 'queued' };
   }
 
-  async pollSongTask(taskId: string): Promise<MusicTaskResult> {
+  async pollSongTask(taskId: string, _input?: MusicGenerateInput): Promise<MusicTaskResult> {
     const task = this.tasks.get(taskId);
     if (!task) return { taskId, status: 'failed', error: '任务不存在' };
     const elapsed = Date.now() - task.createdAt;
@@ -137,9 +123,4 @@ export class MockMusicClient {
   }
 }
 
-export function createMusicClient(): VolcengineMusicClient | MockMusicClient {
-  const ak = process.env.VOLC_ACCESS_KEY?.trim();
-  const sk = process.env.VOLC_SECRET_KEY?.trim();
-  if (ak && sk) return new VolcengineMusicClient(ak, sk);
-  return new MockMusicClient();
-}
+export type { MusicGenerateInput, MusicTaskResult } from './music-client.types';
